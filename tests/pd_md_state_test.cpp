@@ -107,7 +107,10 @@ TEST_F(PdMdStateTest, MdSessionTimesOutAndTracksRetries)
     }
 
     const std::array<uint8_t, 2> reply{0xAA, 0xBB};
-    adapter.handleMdCallback(sessionId, reply.data(), reply.size());
+    TRDP_MD_INFO_T info{};
+    info.sessionId = sessionId;
+    info.comId     = 2001;
+    adapter.handleMdCallback(&info, reply.data(), reply.size());
     opt = mdEngine.getSession(sessionId);
     ASSERT_TRUE(opt.has_value());
     session = *opt;

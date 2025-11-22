@@ -14,7 +14,11 @@ struct TRDP_PD_INFO_T
 
 struct TRDP_MD_INFO_T
 {
-    uint32_t sessionId{0};
+    uint32_t          sessionId{0};
+    uint32_t          comId{0};
+    uint32_t          resultCode{0};
+    uint32_t          msgType{0};
+    TRDP_MD_PROTOCOL  protocol{TRDP_MD_UDP};
 };
 
 enum TRDP_ERR_T

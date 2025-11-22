@@ -4,6 +4,7 @@
 #include <cctype>
 #include <chrono>
 #include <iomanip>
+#include <mutex>
 #include <optional>
 #include <sstream>
 
@@ -218,12 +219,66 @@ namespace api
         j["role"]                  = sess->role == engine::md::MdRole::REQUESTER ? "REQUESTER" : "RESPONDER";
         j["state"]                 = engine::md::MdEngine::stateToString(sess->state);
         j["retryCount"]            = sess->retryCount;
+        j["protocol"]              = sess->proto == engine::md::MdProtocol::TCP ? "TCP" : "UDP";
+        j["lastStateChangeNs"]     = sess->lastStateChange.time_since_epoch().count();
+        j["deadlineNs"]            = sess->deadline.time_since_epoch().count();
         j["stats"]["txCount"]      = sess->stats.txCount;
         j["stats"]["rxCount"]      = sess->stats.rxCount;
         j["stats"]["retryCount"]   = sess->stats.retryCount;
         j["stats"]["timeoutCount"] = sess->stats.timeoutCount;
         j["stats"]["lastTxTime"]   = sess->stats.lastTxTime.time_since_epoch().count();
         j["stats"]["lastRxTime"]   = sess->stats.lastRxTime.time_since_epoch().count();
+        j["stats"]["lastRoundTripUs"] = sess->stats.lastRoundTripUs;
+
+        auto bytesToHex = [](const std::vector<uint8_t>& data)
+        {
+            std::ostringstream oss;
+            oss << std::hex << std::setfill('0');
+            for (auto b : data)
+                oss << std::setw(2) << static_cast<int>(b);
+            return oss.str();
+        };
+
+        auto dataSetToJson = [](const data::DataSetInstance* inst)
+        {
+            nlohmann::json json;
+            if (!inst)
+                return json;
+            std::lock_guard<std::mutex> lock(inst->mtx);
+            json["dataSetId"]  = inst->def ? inst->def->id : 0;
+            json["name"]       = inst->def ? inst->def->name : "";
+            json["locked"]     = inst->locked;
+            json["isOutgoing"] = inst->isOutgoing;
+            json["values"]     = nlohmann::json::array();
+            if (inst->def)
+            {
+                for (std::size_t idx = 0; idx < inst->def->elements.size() && idx < inst->values.size(); ++idx)
+                {
+                    nlohmann::json cell;
+                    const auto&    def = inst->def->elements[idx];
+                    const auto&    val = inst->values[idx];
+                    cell["name"]       = def.name;
+                    cell["type"]       = def.type;
+                    cell["arraySize"]  = def.arraySize;
+                    if (def.nestedDataSetId)
+                        cell["nestedDataSetId"] = *def.nestedDataSetId;
+                    cell["defined"] = val.defined;
+                    cell["raw"]     = val.raw;
+                    cell["rawHex"]  = bytesToHex(val.raw);
+                    json["values"].push_back(std::move(cell));
+                }
+            }
+            return json;
+        };
+
+        j["exchange"]["request"]["raw"]    = sess->lastRequestPayload;
+        j["exchange"]["request"]["hex"]    = bytesToHex(sess->lastRequestPayload);
+        j["exchange"]["response"]["raw"]   = sess->lastResponsePayload;
+        j["exchange"]["response"]["hex"]   = bytesToHex(sess->lastResponsePayload);
+        j["exchange"]["request"]["parsed"] = dataSetToJson(sess->requestData);
+        j["exchange"]["response"]["parsed"] = dataSetToJson(sess->responseData);
+        j["exchange"]["timing"]["requestNs"]  = sess->lastRequestWall.time_since_epoch().count();
+        j["exchange"]["timing"]["responseNs"] = sess->lastResponseWall.time_since_epoch().count();
         return j;
     }
 

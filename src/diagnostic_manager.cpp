@@ -425,8 +425,13 @@ namespace diag
                 snapshot.md.rxCount += sess.stats.rxCount;
                 snapshot.md.retryCount += sess.stats.retryCount;
                 snapshot.md.timeoutCount += sess.stats.timeoutCount;
-                if (sess.stats.lastRxTime >= sess.stats.lastTxTime &&
-                    sess.stats.lastTxTime.time_since_epoch().count() != 0)
+                if (sess.stats.lastRoundTripUs > 0)
+                {
+                    snapshot.md.maxLatencyUs =
+                        std::max(snapshot.md.maxLatencyUs, static_cast<double>(sess.stats.lastRoundTripUs));
+                }
+                else if (sess.stats.lastRxTime >= sess.stats.lastTxTime &&
+                         sess.stats.lastTxTime.time_since_epoch().count() != 0)
                 {
                     auto latency = std::chrono::duration_cast<std::chrono::microseconds>(sess.stats.lastRxTime -
                                                                                          sess.stats.lastTxTime);
