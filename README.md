@@ -82,6 +82,10 @@ The simulator honors the `<Debug>` stanza in the XML to route logs to a file (wi
 
 Diagnostic events are collected by `DiagnosticManager`, which also samples PD/MD metrics and makes them available via `/api/diag/events` and `/api/diag/metrics`.
 
+## Scripting hooks
+
+Use `scripts/scripting_hooks.py` to drive PD/MD flows from JSON, Python, or Lua scripts and to capture automated pass/fail reports alongside exported diagnostic logs. See [docs/Scripting.md](docs/Scripting.md) for examples.
+
 ## Testing
 
 Unit tests are enabled by default when configuring CMake. From the build directory:
