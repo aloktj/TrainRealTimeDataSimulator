@@ -17,6 +17,8 @@ namespace engine::md
     {
         using Rule = trdp_sim::SimulationControls::InjectionRule;
 
+        constexpr auto kMinTcpDispatchInterval = std::chrono::milliseconds(50);
+
         std::optional<Rule> findRule(const trdp_sim::EngineContext& ctx, uint32_t comId)
         {
             std::lock_guard<std::mutex> lk(ctx.simulation.mtx);
@@ -442,6 +444,13 @@ namespace engine::md
             std::lock_guard<std::mutex> dsLock(session.requestData->mtx);
             payload = marshalDataSet(*session.requestData, m_ctx);
         }
+        if (session.proto == MdProtocol::TCP && session.stats.lastTxTime.time_since_epoch().count() != 0)
+        {
+            const auto now     = std::chrono::steady_clock::now();
+            const auto elapsed = now - session.stats.lastTxTime;
+            if (elapsed < kMinTcpDispatchInterval)
+                std::this_thread::sleep_for(kMinTcpDispatchInterval - elapsed);
+        }
         const auto rule = findRule(m_ctx, session.comId);
         if (rule)
         {
@@ -485,6 +494,13 @@ namespace engine::md
         {
             std::lock_guard<std::mutex> dsLock(session.responseData->mtx);
             payload = marshalDataSet(*session.responseData, m_ctx);
+        }
+        if (session.proto == MdProtocol::TCP && session.stats.lastTxTime.time_since_epoch().count() != 0)
+        {
+            const auto now     = std::chrono::steady_clock::now();
+            const auto elapsed = now - session.stats.lastTxTime;
+            if (elapsed < kMinTcpDispatchInterval)
+                std::this_thread::sleep_for(kMinTcpDispatchInterval - elapsed);
         }
         const auto rule = findRule(m_ctx, session.comId);
         if (rule)

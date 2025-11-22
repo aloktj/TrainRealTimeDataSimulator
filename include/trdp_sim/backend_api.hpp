@@ -77,6 +77,7 @@ namespace api
         bool           registerVirtualInstance(const std::string& name, const std::string& path, std::string* err = nullptr);
         bool           activateVirtualInstance(const std::string& name, std::string* err = nullptr);
         nlohmann::json listVirtualInstances() const;
+        std::optional<std::size_t> getExpectedElementSize(uint32_t dataSetId, std::size_t elementIdx) const;
 
       private:
         trdp_sim::EngineContext& m_ctx;

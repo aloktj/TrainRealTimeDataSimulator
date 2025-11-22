@@ -1,9 +1,14 @@
 #include "auth_manager.hpp"
 
+#include <array>
 #include <cstdlib>
+#include <iomanip>
 #include <random>
 #include <sstream>
 #include <string_view>
+
+#include <openssl/evp.h>
+#include <openssl/rand.h>
 
 using namespace std::chrono_literals;
 
@@ -33,7 +38,7 @@ namespace auth
         auto it = m_users.find(username);
         if (it == m_users.end())
             return std::nullopt;
-        if (it->second.password != password)
+        if (!verifyPassword(password, it->second))
             return std::nullopt;
 
         Session sess;
@@ -94,9 +99,9 @@ namespace auth
     {
         m_users.clear();
         m_sessions.clear();
-        m_users.emplace("admin", UserRecord{getEnvOrDefault("TRDP_ADMIN_PASSWORD", "admin123"), Role::Admin});
-        m_users.emplace("developer", UserRecord{getEnvOrDefault("TRDP_DEV_PASSWORD", "dev123"), Role::Developer});
-        m_users.emplace("viewer", UserRecord{getEnvOrDefault("TRDP_VIEWER_PASSWORD", "viewer123"), Role::Viewer});
+        addOrUpdateUser("admin", getEnvOrDefault("TRDP_ADMIN_PASSWORD", "admin123"), Role::Admin);
+        addOrUpdateUser("developer", getEnvOrDefault("TRDP_DEV_PASSWORD", "dev123"), Role::Developer);
+        addOrUpdateUser("viewer", getEnvOrDefault("TRDP_VIEWER_PASSWORD", "viewer123"), Role::Viewer);
     }
 
     void AuthManager::pruneExpired()
@@ -109,6 +114,64 @@ namespace auth
             else
                 ++it;
         }
+    }
+
+    std::string AuthManager::generateSalt() const
+    {
+        std::array<unsigned char, 16> saltBytes{};
+        if (RAND_bytes(saltBytes.data(), static_cast<int>(saltBytes.size())) != 1)
+        {
+            std::random_device rd;
+            for (auto& b : saltBytes)
+                b = static_cast<unsigned char>(rd());
+        }
+
+        std::ostringstream oss;
+        oss << std::hex << std::setfill('0');
+        for (auto b : saltBytes)
+            oss << std::setw(2) << static_cast<int>(b);
+        return oss.str();
+    }
+
+    std::string AuthManager::hashPassword(const std::string& password, const std::string& salt) const
+    {
+        constexpr unsigned int iterations   = 120000;
+        constexpr std::size_t  derivedBytes = 32;
+        std::vector<unsigned char> output(derivedBytes);
+
+        const int rc = PKCS5_PBKDF2_HMAC(password.c_str(), static_cast<int>(password.size()),
+                                         reinterpret_cast<const unsigned char*>(salt.data()),
+                                         static_cast<int>(salt.size()), iterations, EVP_sha256(),
+                                         static_cast<int>(output.size()), output.data());
+        if (rc != 1)
+            return {};
+
+        std::ostringstream oss;
+        oss << std::hex << std::setfill('0');
+        for (auto b : output)
+            oss << std::setw(2) << static_cast<int>(b);
+        return oss.str();
+    }
+
+    bool AuthManager::verifyPassword(const std::string& password, const UserRecord& record) const
+    {
+        if (record.salt.empty() || record.passwordHash.empty())
+            return false;
+        return hashPassword(password, record.salt) == record.passwordHash;
+    }
+
+    void AuthManager::addOrUpdateUser(const std::string& username, const std::string& password, Role role)
+    {
+        const auto salt = generateSalt();
+        m_users[username] = UserRecord{hashPassword(password, salt), salt, role};
+    }
+
+    bool AuthManager::isPasswordHashOpaque(const std::string& username, const std::string& plain) const
+    {
+        auto it = m_users.find(username);
+        if (it == m_users.end())
+            return false;
+        return it->second.passwordHash != plain && !it->second.passwordHash.empty();
     }
 
 } // namespace auth
