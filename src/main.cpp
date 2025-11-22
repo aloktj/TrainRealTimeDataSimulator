@@ -34,9 +34,6 @@ int main(int argc, char* argv[])
         ctx.dataSetInstances[def.id] = std::move(inst);
     }
 
-    diag::DiagnosticManager diagMgr;
-    diagMgr.start();
-
     trdp_sim::trdp::TrdpAdapter adapter(ctx);
     adapter.init();
 
@@ -45,6 +42,9 @@ int main(int argc, char* argv[])
 
     ctx.pdEngine = &pdEngine;
     ctx.mdEngine = &mdEngine;
+
+    diag::DiagnosticManager diagMgr(ctx, pdEngine, mdEngine, adapter);
+    diagMgr.start();
 
     pdEngine.initializeFromConfig();
     mdEngine.initializeFromConfig();
@@ -178,6 +178,12 @@ int main(int argc, char* argv[])
             auto maxStr = req->getParameter("max");
             std::size_t maxEvents = maxStr.empty() ? 50u : static_cast<std::size_t>(std::stoul(maxStr));
             cb(jsonResponse(api.getRecentEvents(maxEvents)));
+        },
+        {Get});
+
+    app().registerHandler("/api/diag/metrics",
+        [&api, jsonResponse](const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& cb) {
+            cb(jsonResponse(api.getDiagnosticsMetrics()));
         },
         {Get});
 

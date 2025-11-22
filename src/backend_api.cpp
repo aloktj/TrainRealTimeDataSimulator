@@ -294,6 +294,41 @@ nlohmann::json BackendApi::getRecentEvents(std::size_t maxEvents) const
     return j;
 }
 
+nlohmann::json BackendApi::getDiagnosticsMetrics() const
+{
+    auto m = m_diag.getMetrics();
+    nlohmann::json j;
+    j["timestampMs"] = std::chrono::duration_cast<std::chrono::milliseconds>(m.timestamp.time_since_epoch()).count();
+    j["threads"]["pd"] = m.threads.pdThreadRunning;
+    j["threads"]["md"] = m.threads.mdThreadRunning;
+    j["threads"]["diag"] = m.threads.diagThreadRunning;
+    j["threads"]["trdp"] = m.threads.trdpThreadRunning;
+
+    j["pd"]["telegrams"] = m.pd.telegrams;
+    j["pd"]["txCount"] = m.pd.txCount;
+    j["pd"]["rxCount"] = m.pd.rxCount;
+    j["pd"]["timeoutCount"] = m.pd.timeoutCount;
+    j["pd"]["maxCycleJitterUs"] = m.pd.maxCycleJitterUs;
+
+    j["md"]["sessions"] = m.md.sessions;
+    j["md"]["txCount"] = m.md.txCount;
+    j["md"]["rxCount"] = m.md.rxCount;
+    j["md"]["retryCount"] = m.md.retryCount;
+    j["md"]["timeoutCount"] = m.md.timeoutCount;
+    j["md"]["maxLatencyUs"] = m.md.maxLatencyUs;
+
+    j["trdp"]["initErrors"] = m.trdp.initErrors;
+    j["trdp"]["publishErrors"] = m.trdp.publishErrors;
+    j["trdp"]["subscribeErrors"] = m.trdp.subscribeErrors;
+    j["trdp"]["pdSendErrors"] = m.trdp.pdSendErrors;
+    j["trdp"]["mdRequestErrors"] = m.trdp.mdRequestErrors;
+    j["trdp"]["mdReplyErrors"] = m.trdp.mdReplyErrors;
+    j["trdp"]["eventLoopErrors"] = m.trdp.eventLoopErrors;
+    if (m.trdp.lastErrorCode)
+        j["trdp"]["lastErrorCode"] = *m.trdp.lastErrorCode;
+    return j;
+}
+
 void BackendApi::triggerDiagnosticEvent(const std::string& severity,
                                         const std::string& component,
                                         const std::string& message,

@@ -257,6 +257,17 @@ std::optional<MdSessionRuntime*> MdEngine::getSession(uint32_t sessionId)
     return it->second.get();
 }
 
+void MdEngine::forEachSession(const std::function<void(const MdSessionRuntime&)>& fn)
+{
+    std::lock_guard<std::mutex> lock(m_sessionsMtx);
+    for (const auto& [_, sessPtr] : m_ctx.mdSessions) {
+        if (!sessPtr)
+            continue;
+        std::lock_guard<std::mutex> lk(sessPtr->mtx);
+        fn(*sessPtr);
+    }
+}
+
 void MdEngine::buildSessionsFromConfig()
 {
     for (const auto& iface : m_ctx.deviceConfig.interfaces) {
