@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <unordered_map>
 #include <vector>
@@ -51,6 +52,56 @@ namespace trdp_sim
     namespace pd  = engine::pd;
     namespace md  = engine::md;
     namespace cfg = config;
+
+    struct SimulationControls
+    {
+        struct InjectionRule
+        {
+            bool     corruptComId{false};
+            bool     corruptDataSetId{false};
+            int      seqDelta{0};
+            uint32_t delayMs{0};
+            double   lossRate{0.0};
+        };
+
+        struct StressMode
+        {
+            bool     enabled{false};
+            uint32_t pdCycleOverrideUs{0};
+            uint32_t mdBurst{0};
+            uint32_t mdIntervalUs{0};
+        };
+
+        struct RedundancySimulation
+        {
+            bool     forceSwitch{false};
+            bool     busFailure{false};
+            uint32_t failedChannel{0};
+        };
+
+        struct TimeSyncOffsets
+        {
+            int64_t ntpOffsetUs{0};
+            int64_t ptpOffsetUs{0};
+        };
+
+        struct VirtualInstance
+        {
+            std::string        name;
+            std::string        configPath;
+            cfg::DeviceConfig  config;
+        };
+
+        mutable std::mutex                                 mtx;
+        std::unordered_map<uint32_t, InjectionRule>        pdRules;
+        std::unordered_map<uint32_t, InjectionRule>        mdRules;
+        std::unordered_map<uint32_t, InjectionRule>        dataSetRules;
+        StressMode                                         stress;
+        RedundancySimulation                               redundancy;
+        TimeSyncOffsets                                    timeSync;
+        std::unordered_map<std::string, VirtualInstance>   instances;
+        std::string                                        activeInstance;
+    };
 
     struct PdRuntimeDeleter
     {
@@ -116,6 +167,9 @@ namespace trdp_sim
 
         // Adapter reference for API utilities
         trdp::TrdpAdapter* trdpAdapter{nullptr};
+
+        // Simulation and injection controls
+        SimulationControls simulation;
 
         ~EngineContext();
     };

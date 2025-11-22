@@ -6,10 +6,41 @@
 #include <chrono>
 #include <iostream>
 #include <memory>
+#include <optional>
+#include <random>
 #include <vector>
 
 namespace engine::md
 {
+
+    namespace
+    {
+        using Rule = trdp_sim::SimulationControls::InjectionRule;
+
+        std::optional<Rule> findRule(const trdp_sim::EngineContext& ctx, uint32_t comId)
+        {
+            std::lock_guard<std::mutex> lk(ctx.simulation.mtx);
+            auto                        it = ctx.simulation.mdRules.find(comId);
+            if (it != ctx.simulation.mdRules.end())
+                return it->second;
+            return std::nullopt;
+        }
+
+        bool shouldDrop(const Rule& rule)
+        {
+            if (rule.lossRate <= 0.0)
+                return false;
+            thread_local std::mt19937_64 rng{std::random_device{}()};
+            std::uniform_real_distribution<double> dist(0.0, 1.0);
+            return dist(rng) < rule.lossRate;
+        }
+
+        void applyDelay(const Rule& rule)
+        {
+            if (rule.delayMs > 0)
+                std::this_thread::sleep_for(std::chrono::milliseconds(rule.delayMs));
+        }
+    } // namespace
 
     using trdp_sim::util::marshalDataSet;
     using trdp_sim::util::unmarshalDataToDataSet;
@@ -138,6 +169,14 @@ namespace engine::md
             ctx.comId     = info->comId;
             ctx.proto     = toMdProto(info);
             ctx.resultCode = info->resultCode;
+        }
+
+        const auto rule = findRule(m_ctx, ctx.comId);
+        if (rule)
+        {
+            if (shouldDrop(*rule))
+                return;
+            applyDelay(*rule);
         }
 
         auto opt = getSession(ctx.sessionId);
@@ -292,6 +331,46 @@ namespace engine::md
         while (m_running.load())
         {
             handleTimeouts();
+            trdp_sim::SimulationControls::StressMode stress{};
+            {
+                std::lock_guard<std::mutex> lk(m_ctx.simulation.mtx);
+                stress = m_ctx.simulation.stress;
+            }
+            if (stress.enabled && stress.mdBurst > 0)
+            {
+                static auto lastBurst = std::chrono::steady_clock::now();
+                auto        interval  = std::chrono::microseconds(stress.mdIntervalUs == 0 ? 1000 : stress.mdIntervalUs);
+                auto        now       = std::chrono::steady_clock::now();
+                if (now - lastBurst >= interval)
+                {
+                    lastBurst = now;
+                    std::vector<uint32_t> targets;
+                    {
+                        std::lock_guard<std::mutex> lock(m_sessionsMtx);
+                        for (const auto& [id, sessPtr] : m_ctx.mdSessions)
+                        {
+                            if (sessPtr && sessPtr->role == MdRole::REQUESTER)
+                                targets.push_back(id);
+                        }
+                    }
+                    std::size_t fired{0};
+                    for (auto id : targets)
+                    {
+                        auto opt = getSession(id);
+                        if (!opt)
+                            continue;
+                        auto*                       sess = *opt;
+                        std::lock_guard<std::mutex> lk(sess->mtx);
+                        if (sess->state == MdSessionState::IDLE || sess->state == MdSessionState::REPLY_RECEIVED ||
+                            sess->state == MdSessionState::TIMEOUT || sess->state == MdSessionState::ERROR)
+                        {
+                            dispatchRequestLocked(*sess);
+                            if (++fired >= stress.mdBurst)
+                                break;
+                        }
+                    }
+                }
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
     }
@@ -363,6 +442,20 @@ namespace engine::md
             std::lock_guard<std::mutex> dsLock(session.requestData->mtx);
             payload = marshalDataSet(*session.requestData, m_ctx);
         }
+        const auto rule = findRule(m_ctx, session.comId);
+        if (rule)
+        {
+            if (shouldDrop(*rule))
+            {
+                session.state = MdSessionState::TIMEOUT;
+                return;
+            }
+            applyDelay(*rule);
+            if (rule->corruptDataSetId && !payload.empty())
+                payload[0] = static_cast<uint8_t>(payload[0] ^ 0xFF);
+            if (rule->corruptComId)
+                payload.insert(payload.begin(), 0xCD);
+        }
         session.lastRequestPayload = payload;
         int rc = m_adapter.sendMdRequest(session, payload);
         if (rc != 0)
@@ -392,6 +485,20 @@ namespace engine::md
         {
             std::lock_guard<std::mutex> dsLock(session.responseData->mtx);
             payload = marshalDataSet(*session.responseData, m_ctx);
+        }
+        const auto rule = findRule(m_ctx, session.comId);
+        if (rule)
+        {
+            if (shouldDrop(*rule))
+            {
+                session.state = MdSessionState::TIMEOUT;
+                return;
+            }
+            applyDelay(*rule);
+            if (rule->corruptDataSetId && !payload.empty())
+                payload[0] = static_cast<uint8_t>(payload[0] ^ 0xFF);
+            if (rule->corruptComId)
+                payload.insert(payload.begin(), 0xCD);
         }
         session.lastResponsePayload = payload;
         int rc = m_adapter.sendMdReply(session, payload);

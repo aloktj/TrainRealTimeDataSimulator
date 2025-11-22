@@ -12,6 +12,7 @@
 #include <nlohmann/json.hpp>
 
 #include "data_marshalling.hpp"
+#include "xml_loader.hpp"
 
 namespace api
 {
@@ -109,6 +110,17 @@ namespace api
             }
 
             return found && active ? "Active" : "Inactive";
+        }
+
+        nlohmann::json ruleToJson(const trdp_sim::SimulationControls::InjectionRule& rule)
+        {
+            nlohmann::json j;
+            j["corruptComId"]    = rule.corruptComId;
+            j["corruptDataSet"] = rule.corruptDataSetId;
+            j["seqDelta"]       = rule.seqDelta;
+            j["delayMs"]        = rule.delayMs;
+            j["lossRate"]       = rule.lossRate;
+            return j;
         }
     } // namespace
 
@@ -707,6 +719,28 @@ namespace api
         j["trdp"]["eventLoopErrors"] = m.trdp.eventLoopErrors;
         if (m.trdp.lastErrorCode)
             j["trdp"]["lastErrorCode"] = *m.trdp.lastErrorCode;
+        {
+            std::lock_guard<std::mutex> lk(m_ctx.simulation.mtx);
+            j["simulation"]["stress"]["enabled"]          = m_ctx.simulation.stress.enabled;
+            j["simulation"]["stress"]["pdCycleOverrideUs"] = m_ctx.simulation.stress.pdCycleOverrideUs;
+            j["simulation"]["stress"]["mdBurst"]          = m_ctx.simulation.stress.mdBurst;
+            j["simulation"]["stress"]["mdIntervalUs"]     = m_ctx.simulation.stress.mdIntervalUs;
+            j["simulation"]["redundancy"]["forceSwitch"]  = m_ctx.simulation.redundancy.forceSwitch;
+            j["simulation"]["redundancy"]["busFailure"]    = m_ctx.simulation.redundancy.busFailure;
+            j["simulation"]["redundancy"]["failedChannel"] = m_ctx.simulation.redundancy.failedChannel;
+            j["simulation"]["timeSync"]["ntpOffsetUs"] = m_ctx.simulation.timeSync.ntpOffsetUs;
+            j["simulation"]["timeSync"]["ptpOffsetUs"] = m_ctx.simulation.timeSync.ptpOffsetUs;
+            j["simulation"]["activeInstance"]           = m_ctx.simulation.activeInstance;
+            j["simulation"]["virtualInstances"]         = nlohmann::json::array();
+            for (const auto& [name, inst] : m_ctx.simulation.instances)
+            {
+                nlohmann::json entry;
+                entry["name"]   = name;
+                entry["path"]   = inst.configPath;
+                entry["active"] = m_ctx.simulation.activeInstance == name;
+                j["simulation"]["virtualInstances"].push_back(entry);
+            }
+        }
         return j;
     }
 
@@ -787,6 +821,143 @@ namespace api
             }
         }
         return true;
+    }
+
+    nlohmann::json BackendApi::getSimulationState() const
+    {
+        nlohmann::json j;
+        std::lock_guard<std::mutex> lk(m_ctx.simulation.mtx);
+        for (const auto& [comId, rule] : m_ctx.simulation.pdRules)
+            j["pdRules"].push_back({{"comId", comId}, {"rule", ruleToJson(rule)}});
+        for (const auto& [comId, rule] : m_ctx.simulation.mdRules)
+            j["mdRules"].push_back({{"comId", comId}, {"rule", ruleToJson(rule)}});
+        for (const auto& [dsId, rule] : m_ctx.simulation.dataSetRules)
+            j["dataSetRules"].push_back({{"dataSetId", dsId}, {"rule", ruleToJson(rule)}});
+        j["stress"]["enabled"]          = m_ctx.simulation.stress.enabled;
+        j["stress"]["pdCycleOverrideUs"] = m_ctx.simulation.stress.pdCycleOverrideUs;
+        j["stress"]["mdBurst"]          = m_ctx.simulation.stress.mdBurst;
+        j["stress"]["mdIntervalUs"]     = m_ctx.simulation.stress.mdIntervalUs;
+        j["redundancy"]["forceSwitch"]  = m_ctx.simulation.redundancy.forceSwitch;
+        j["redundancy"]["busFailure"]    = m_ctx.simulation.redundancy.busFailure;
+        j["redundancy"]["failedChannel"] = m_ctx.simulation.redundancy.failedChannel;
+        j["timeSync"]["ntpOffsetUs"]     = m_ctx.simulation.timeSync.ntpOffsetUs;
+        j["timeSync"]["ptpOffsetUs"]     = m_ctx.simulation.timeSync.ptpOffsetUs;
+        j["instances"]                    = nlohmann::json::array();
+        for (const auto& [name, inst] : m_ctx.simulation.instances)
+        {
+            nlohmann::json item;
+            item["name"]   = name;
+            item["path"]   = inst.configPath;
+            item["active"] = m_ctx.simulation.activeInstance == name;
+            j["instances"].push_back(item);
+        }
+        return j;
+    }
+
+    void BackendApi::upsertPdInjectionRule(uint32_t comId, const trdp_sim::SimulationControls::InjectionRule& rule)
+    {
+        std::lock_guard<std::mutex> lk(m_ctx.simulation.mtx);
+        m_ctx.simulation.pdRules[comId] = rule;
+    }
+
+    void BackendApi::upsertMdInjectionRule(uint32_t comId, const trdp_sim::SimulationControls::InjectionRule& rule)
+    {
+        std::lock_guard<std::mutex> lk(m_ctx.simulation.mtx);
+        m_ctx.simulation.mdRules[comId] = rule;
+    }
+
+    void BackendApi::upsertDataSetInjectionRule(uint32_t dataSetId, const trdp_sim::SimulationControls::InjectionRule& rule)
+    {
+        std::lock_guard<std::mutex> lk(m_ctx.simulation.mtx);
+        m_ctx.simulation.dataSetRules[dataSetId] = rule;
+    }
+
+    void BackendApi::clearInjectionRules()
+    {
+        std::lock_guard<std::mutex> lk(m_ctx.simulation.mtx);
+        m_ctx.simulation.pdRules.clear();
+        m_ctx.simulation.mdRules.clear();
+        m_ctx.simulation.dataSetRules.clear();
+    }
+
+    void BackendApi::setStressMode(const trdp_sim::SimulationControls::StressMode& stress)
+    {
+        std::lock_guard<std::mutex> lk(m_ctx.simulation.mtx);
+        m_ctx.simulation.stress = stress;
+    }
+
+    void BackendApi::setRedundancySimulation(const trdp_sim::SimulationControls::RedundancySimulation& sim)
+    {
+        std::lock_guard<std::mutex> lk(m_ctx.simulation.mtx);
+        m_ctx.simulation.redundancy = sim;
+    }
+
+    void BackendApi::setTimeSyncOffsets(const trdp_sim::SimulationControls::TimeSyncOffsets& offsets)
+    {
+        std::lock_guard<std::mutex> lk(m_ctx.simulation.mtx);
+        m_ctx.simulation.timeSync = offsets;
+    }
+
+    bool BackendApi::registerVirtualInstance(const std::string& name, const std::string& path, std::string* err)
+    {
+        if (name.empty() || path.empty())
+        {
+            if (err)
+                *err = "name and path are required";
+            return false;
+        }
+        config::XmlConfigurationLoader loader;
+        config::DeviceConfig           cfg;
+        try
+        {
+            cfg = loader.load(path);
+        }
+        catch (const std::exception& ex)
+        {
+            if (err)
+                *err = ex.what();
+            return false;
+        }
+
+        trdp_sim::SimulationControls::VirtualInstance inst;
+        inst.name       = name;
+        inst.configPath = path;
+        inst.config     = std::move(cfg);
+
+        std::lock_guard<std::mutex> lk(m_ctx.simulation.mtx);
+        m_ctx.simulation.instances[name] = std::move(inst);
+        return true;
+    }
+
+    bool BackendApi::activateVirtualInstance(const std::string& name, std::string* err)
+    {
+        std::lock_guard<std::mutex> lk(m_ctx.simulation.mtx);
+        auto                        it = m_ctx.simulation.instances.find(name);
+        if (it == m_ctx.simulation.instances.end())
+        {
+            if (err)
+                *err = "unknown instance";
+            return false;
+        }
+        m_backend.applyPreloadedConfiguration(it->second.config);
+        m_ctx.configPath               = it->second.configPath;
+        m_ctx.simulation.activeInstance = name;
+        return true;
+    }
+
+    nlohmann::json BackendApi::listVirtualInstances() const
+    {
+        nlohmann::json arr = nlohmann::json::array();
+        std::lock_guard<std::mutex> lk(m_ctx.simulation.mtx);
+        for (const auto& [name, inst] : m_ctx.simulation.instances)
+        {
+            nlohmann::json j;
+            j["name"]   = name;
+            j["path"]   = inst.configPath;
+            j["active"] = m_ctx.simulation.activeInstance == name;
+            arr.push_back(j);
+        }
+        return arr;
     }
 
 } // namespace api

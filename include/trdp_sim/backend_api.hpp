@@ -65,6 +65,19 @@ namespace api
         bool                                backupConfiguration(const std::filesystem::path& destination) const;
         bool                                restoreConfiguration(const std::filesystem::path& source);
 
+        // Simulation controls
+        nlohmann::json getSimulationState() const;
+        void           upsertPdInjectionRule(uint32_t comId, const trdp_sim::SimulationControls::InjectionRule& rule);
+        void           upsertMdInjectionRule(uint32_t comId, const trdp_sim::SimulationControls::InjectionRule& rule);
+        void           upsertDataSetInjectionRule(uint32_t dataSetId, const trdp_sim::SimulationControls::InjectionRule& rule);
+        void           clearInjectionRules();
+        void           setStressMode(const trdp_sim::SimulationControls::StressMode& stress);
+        void           setRedundancySimulation(const trdp_sim::SimulationControls::RedundancySimulation& sim);
+        void           setTimeSyncOffsets(const trdp_sim::SimulationControls::TimeSyncOffsets& offsets);
+        bool           registerVirtualInstance(const std::string& name, const std::string& path, std::string* err = nullptr);
+        bool           activateVirtualInstance(const std::string& name, std::string* err = nullptr);
+        nlohmann::json listVirtualInstances() const;
+
       private:
         trdp_sim::EngineContext& m_ctx;
         engine::pd::PdEngine&    m_pd;
