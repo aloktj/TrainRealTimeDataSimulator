@@ -2,6 +2,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
+#include <string>
+#include <vector>
 
 #include "engine_context.hpp"
 #include "pd_engine.hpp"
@@ -23,6 +26,7 @@ public:
 
     // PD related:
     nlohmann::json getPdStatus() const;
+    void enablePdTelegram(uint32_t comId, bool enable);
     nlohmann::json getDataSetValues(uint32_t dataSetId) const;
     void setDataSetValue(uint32_t dataSetId, std::size_t elementIdx,
                          const std::vector<uint8_t>& value);
@@ -41,6 +45,11 @@ public:
 
     // Diagnostics:
     nlohmann::json getRecentEvents(std::size_t maxEvents) const;
+    void triggerDiagnosticEvent(const std::string& severity,
+                                const std::string& component,
+                                const std::string& message,
+                                const std::optional<std::string>& extraJson = std::nullopt);
+    void enablePcap(bool enable);
 
 private:
     trdp_sim::EngineContext& m_ctx;
