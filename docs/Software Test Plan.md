@@ -291,12 +291,72 @@ TC: UI-001 – Dataset Table UI
 TC: PERF-001 – PD Load Stress
 As in PD-020 but with concrete metrics:
 	•	Log CPU usage, jitter, packet drop count (via Wireshark or counters).
+TC: PERF-002 – PD Jitter Measurement
+	•	Run a 10 ms PD publishing cycle for 10 minutes while capturing jitter metrics from diagnostics/logs.
+	•	Expected: Linux VM jitter ≤ 1 ms, Raspberry Pi jitter ≤ 5 ms, and jitter histogram exported for review.
+TC: PERF-003 – UI Refresh Rate
+	•	Open the live UI dashboard with PD/MD traffic active, record WebSocket/UI updates using browser dev tools.
+	•	Expected: UI value updates occur at least 10 times per second without stalling interactions.
+TC: PERF-004 – PD Scaling to 500+
+	•	Load a configuration with 500+ PD telegrams (mixed pub/sub) and enable them concurrently.
+	•	Expected: Simulator stays responsive, counters increment correctly, and no dropped UI updates.
 TC: PERF-010 – MD Session Concurrency
-	•	Create 100+ MD sessions to a peer, send bursts, measure RTT and failure rate.
+	•	Create 200+ MD sessions to a peer, send bursts, measure RTT and failure rate.
+	•	Expected: No crashes or session starvation; aggregate throughput recorded for the run.
 
 
+2.6 Reliability & Recovery Test Cases
+TC: REL-001 – NIC Down/Up Auto-Recover
+	•	Start PD/MD traffic, bring primary NIC down and back up (ifdown/ifup or link pull) while keeping app running.
+	•	Expected: Engine rebinds and resumes traffic without manual restart; UI shows recovered status.
+TC: REL-002 – Graceful XML Error Handling
+	•	Load an XML with schema violations and malformed fields.
+	•	Expected: UI/API returns actionable error with line numbers; simulator keeps previous good configuration running.
+TC: REL-003 – Crash-Safe Dataset Decode
+	•	Inject malformed PD payloads (bad length/endian) using a script or packet tool.
+	•	Expected: Decode errors are logged, counters continue, and process remains stable.
+TC: REL-004 – TRDP Engine/UI Decoupling
+	•	Stop or reload the UI service while PD/MD traffic is active.
+	•	Expected: TRDP engine continues publishing/subscribing and the UI reconnects without data loss.
 
-2.6 Security Test Cases
+
+2.7 Usability & UI Behavior
+TC: UXP-001 – Dataset Table Intuitiveness
+	•	Observe dataset tables for incoming and outgoing datasets.
+	•	Expected: Clear labels, typed cells, and inline edit affordances; inactive controls greyed when read-only.
+TC: UXP-002 – Industrial Color Coding
+	•	Trigger normal, warning, and alarm states (timeouts, validity changes) in PD/MD views.
+	•	Expected: Status colors follow the industrial legend used in requirements and remain readable on tablets.
+TC: UXP-003 – Touch-Friendly Controls
+	•	Operate the UI on a touchscreen (tablet) or using browser device emulation.
+	•	Expected: Buttons and toggles have sufficient spacing and remain operable with gloved touch.
+
+
+2.8 Portability & Build Validation
+TC: PORT-001 – x86_64 Native Build
+	•	Build via CMake on Ubuntu/Debian x86_64 (bare metal or VM).
+	•	Expected: Build succeeds with no warnings and packaged artifacts are produced.
+TC: PORT-002 – Raspberry Pi Native Build
+	•	Build on Raspberry Pi 4/5 using the provided toolchain.
+	•	Expected: Build passes, performance counters within Pi targets, and UI accessible over LAN.
+TC: PORT-003 – Raspberry Pi Cross-Compile
+	•	Run the cross-compilation workflow from x86_64 host targeting Pi.
+	•	Expected: Artifacts link correctly on the Pi image; CMake presets remain clean and reproducible.
+
+
+2.9 Safety Simulation Test Cases
+TC: SAFE-001 – Deterministic PD Scheduling
+	•	Run PD publishers with fixed cycles and capture timestamps.
+	•	Expected: Schedule variance stays within configured limits and matches deterministic expectations.
+TC: SAFE-002 – Safe Defaults & Validity Behavior
+	•	Force timeouts/invalid states for datasets configured with zero/keep validity behavior.
+	•	Expected: Outputs follow configured safe default (zeroed or last-good) without uncontrolled propagation.
+TC: SAFE-003 – Redundant Telegram Handling
+	•	Configure dual redundant PD channels and toggle primary/backup availability.
+	•	Expected: Telegram handling remains continuous with clear indication of active path and failover timing.
+
+
+2.10 Security Test Cases
 (These tie into STRIDE below.)
 TC: SEC-001 – Authentication Required
 	•	Try accessing /api/pd without login / auth token.
@@ -312,7 +372,6 @@ TC: SEC-030 – Basic DoS Scenario
 	•	Expected:
 	◦	Server remains responsive.
 	◦	No crash, memory leak, or unbounded queues.
-
 
 
 3. Software Test Report (STR) – Template

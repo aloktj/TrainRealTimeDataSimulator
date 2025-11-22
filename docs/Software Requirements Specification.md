@@ -286,49 +286,47 @@ FR-11: File I/O Requirements
 
 3.2 Non-Functional Requirements (NFR)
 NFR-1: Performance
-	•	PD cycle accuracy: ≤ 1 ms jitter on Linux VM, ≤ 5 ms on Raspberry Pi
-	•	Support 500+ PD telegrams
-	•	Support 200+ MD sessions
-	•	Web UI update rate ≥ 10 Hz
+	•	Measure and record PD cycle accuracy with targets of ≤ 1 ms jitter on Linux VM and ≤ 5 ms on Raspberry Pi.
+	•	Maintain a Web UI update rate ≥ 10 Hz so dataset and diagnostics tables feel real-time.
+	•	Scale the simulator to at least 500 concurrent PD telegrams while sustaining telemetry and controls.
+	•	Scale MD handling to at least 200 concurrent sessions without UI slowdown.
 
 
 
 NFR-2: Reliability
-	•	Auto-recover from NIC down/up
-	•	Graceful recovery from XML errors
-	•	No crash during malformed dataset decode
-	•	TRDP engine must operate independently from UI
+	•	Auto-recover cleanly from NIC down/up transitions without manual restart.
+	•	Handle malformed XML gracefully with actionable errors and no system crash.
+	•	Avoid crashes during malformed dataset decoding and continue processing valid traffic.
+	•	Keep the TRDP engine operationally decoupled from the UI so UI failures do not stop telegram flow.
 
 
 
 NFR-3: Usability
-	•	UI must require minimal training
-	•	Dataset tables must be intuitive
-	•	Diagnostics must use industrial symbolic color coding
-	•	Touch-friendly UI
+	•	Keep dataset tables intuitive with clear labels and inline edit affordances.
+	•	Use industrial symbolic color coding for diagnostics and status indicators.
+	•	Provide touch-friendly controls (button spacing, tablet-friendly targets) for field operation.
 
 
 
 NFR-4: Portability
-Support:
+Support builds and packaging for:
 	•	x86_64 Linux (bare metal & VMs)
-	•	Raspberry Pi ARM (Pi 4/5)
-	•	Native build and cross-compilation
+	•	Raspberry Pi ARM (Pi 4/5) through native and cross-compilation workflows
+	•	Clean CMake integration for both architectures
 
 
 
 NFR-5: Maintainability
-	•	Modular structure (XML → TRDP Engine → Interface Manager → UI)
-	•	Logging with timestamps & severity
-	•	Clean CMake build system
+	•	Maintain a modular structure (XML → TRDP Engine → Interface Manager → UI).
+	•	Provide logging with timestamps & severity for diagnosability.
+	•	Keep build tooling simple and consistent for contributors.
 
 
 
 NFR-6: Safety Simulation Behavior
-	•	Deterministic PD scheduling
-	•	Configurable safe defaults
-	•	Validity-behavior simulation (zero/keep)
-	•	Redundant telegram simulation
+	•	Provide deterministic PD scheduling suited for safety simulation and reproducible scenarios.
+	•	Apply safe defaults and validity-behavior simulation (zero/keep) to avoid unsafe data propagation.
+	•	Simulate redundant telegram handling for dual/backup channels.
 
 
 
