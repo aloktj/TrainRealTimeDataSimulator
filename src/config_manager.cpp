@@ -380,6 +380,14 @@ void ConfigManager::validateDeviceConfig(const DeviceConfig& cfg)
             throw std::runtime_error("Invalid PD port on interface " + iface.name);
         if (iface.mdCom.udpPort == 0 || iface.mdCom.tcpPort == 0)
             throw std::runtime_error("Invalid MD port on interface " + iface.name);
+        if (iface.mdCom.replyTimeoutUs == 0)
+            throw std::runtime_error("MD replyTimeoutUs must be positive on interface " + iface.name);
+        if (iface.mdCom.confirmTimeoutUs == 0)
+            throw std::runtime_error("MD confirmTimeoutUs must be positive on interface " + iface.name);
+        if (iface.mdCom.protocol == MdComParameter::Protocol::TCP && iface.mdCom.connectTimeoutUs == 0)
+            throw std::runtime_error("MD connectTimeoutUs must be set for TCP on interface " + iface.name);
+        if (iface.mdCom.retries > 10)
+            throw std::runtime_error("MD retries out of supported range (0-10) on interface " + iface.name);
 
         for (const auto& tel : iface.telegrams) {
             if (!comIds.insert(tel.comId).second)

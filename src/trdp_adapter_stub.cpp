@@ -52,18 +52,20 @@ void TrdpAdapter::handlePdCallback(uint32_t comId, const uint8_t* data, std::siz
     }
 }
 
-int TrdpAdapter::sendMdRequest(engine::md::MdSessionRuntime& session)
+int TrdpAdapter::sendMdRequest(engine::md::MdSessionRuntime& session, const std::vector<uint8_t>& payload)
 {
     std::lock_guard<std::mutex> lk(m_errMtx);
     m_requestedSessions.push_back(session.sessionId);
+    m_lastMdRequestPayload = payload;
     (void)session;
     return 0;
 }
 
-int TrdpAdapter::sendMdReply(engine::md::MdSessionRuntime& session)
+int TrdpAdapter::sendMdReply(engine::md::MdSessionRuntime& session, const std::vector<uint8_t>& payload)
 {
     std::lock_guard<std::mutex> lk(m_errMtx);
     m_repliedSessions.push_back(session.sessionId);
+    m_lastMdReplyPayload = payload;
     (void)session;
     return 0;
 }
@@ -100,6 +102,18 @@ std::vector<uint8_t> TrdpAdapter::getLastPdPayload() const
 {
     std::lock_guard<std::mutex> lk(m_errMtx);
     return m_lastPdPayload;
+}
+
+std::vector<uint8_t> TrdpAdapter::getLastMdRequestPayload() const
+{
+    std::lock_guard<std::mutex> lk(m_errMtx);
+    return m_lastMdRequestPayload;
+}
+
+std::vector<uint8_t> TrdpAdapter::getLastMdReplyPayload() const
+{
+    std::lock_guard<std::mutex> lk(m_errMtx);
+    return m_lastMdReplyPayload;
 }
 
 std::vector<uint32_t> TrdpAdapter::getRequestedSessions() const

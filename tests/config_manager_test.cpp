@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
+#include <string>
 
 TEST(ConfigManager, ParsesSampleConfig)
 {
@@ -43,4 +44,28 @@ TEST(ConfigManager, DetectsDuplicateDatasetIds)
     config::ConfigManager mgr;
     auto cfg = mgr.loadDeviceConfigFromXml(tmpPath);
     EXPECT_THROW(mgr.validateDeviceConfig(cfg), std::runtime_error);
+}
+
+TEST(ConfigManager, DetectsInvalidMdTimeouts)
+{
+    const std::string tmpPath = std::filesystem::temp_directory_path() / "bad_mdcom.xml";
+    std::ofstream ofs(tmpPath);
+    ofs << "<Device hostName=\"md\">"
+           "<DataSets><DataSet name=\"ds\" id=\"1\"><Element name=\"e1\" type=\"UINT8\"/></DataSet></DataSets>"
+           "<Interfaces><Interface networkId=\"1\" name=\"if1\">"
+           "<PdCom port=\"17224\" qos=\"1\" ttl=\"1\" timeoutUs=\"1000\"/>"
+           "<MdCom udpPort=\"17225\" tcpPort=\"17226\" replyTimeoutUs=\"0\" confirmTimeoutUs=\"0\" retries=\"11\" protocol=\"TCP\" connectTimeoutUs=\"0\"/>"
+           "</Interface></Interfaces>"
+           "</Device>";
+    ofs.close();
+
+    config::ConfigManager mgr;
+    auto cfg = mgr.loadDeviceConfigFromXml(tmpPath);
+    try {
+        mgr.validateDeviceConfig(cfg);
+        FAIL() << "Expected validation failure";
+    } catch (const std::runtime_error& ex) {
+        const std::string msg = ex.what();
+        EXPECT_NE(msg.find("replyTimeoutUs"), std::string::npos);
+    }
 }

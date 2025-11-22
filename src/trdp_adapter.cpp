@@ -203,7 +203,7 @@ void TrdpAdapter::handlePdCallback(uint32_t comId, const uint8_t* data, std::siz
     }
 }
 
-int TrdpAdapter::sendMdRequest(engine::md::MdSessionRuntime& session)
+int TrdpAdapter::sendMdRequest(engine::md::MdSessionRuntime& session, const std::vector<uint8_t>& payload)
 {
     if (!m_ctx.trdpSession || !session.telegram)
         return -1;
@@ -211,6 +211,7 @@ int TrdpAdapter::sendMdRequest(engine::md::MdSessionRuntime& session)
     {
         std::lock_guard<std::mutex> lk(m_errMtx);
         m_requestedSessions.push_back(session.sessionId);
+        m_lastMdRequestPayload = payload;
     }
 
     TRDP_IP_ADDR_T destIp = 0;
@@ -227,8 +228,8 @@ int TrdpAdapter::sendMdRequest(engine::md::MdSessionRuntime& session)
         session.telegram->comId,
         0,
         0,
-        reinterpret_cast<UINT8*>(session.requestData ? session.requestData->values.data() : nullptr),
-        session.requestData ? static_cast<UINT32>(session.requestData->values.size()) : 0,
+        const_cast<UINT8*>(payload.empty() ? nullptr : payload.data()),
+        static_cast<UINT32>(payload.size()),
         0,
         session.proto == engine::md::MdProtocol::TCP ? TRDP_MD_TCP : TRDP_MD_UDP,
         0,
@@ -242,7 +243,7 @@ int TrdpAdapter::sendMdRequest(engine::md::MdSessionRuntime& session)
     return 0;
 }
 
-int TrdpAdapter::sendMdReply(engine::md::MdSessionRuntime& session)
+int TrdpAdapter::sendMdReply(engine::md::MdSessionRuntime& session, const std::vector<uint8_t>& payload)
 {
     if (!m_ctx.trdpSession || !session.telegram)
         return -1;
@@ -250,6 +251,7 @@ int TrdpAdapter::sendMdReply(engine::md::MdSessionRuntime& session)
     {
         std::lock_guard<std::mutex> lk(m_errMtx);
         m_repliedSessions.push_back(session.sessionId);
+        m_lastMdReplyPayload = payload;
     }
 
     TRDP_IP_ADDR_T destIp = 0;
@@ -263,8 +265,8 @@ int TrdpAdapter::sendMdReply(engine::md::MdSessionRuntime& session)
         this,
         destIp,
         session.telegram->comId,
-        reinterpret_cast<UINT8*>(session.responseData ? session.responseData->values.data() : nullptr),
-        session.responseData ? static_cast<UINT32>(session.responseData->values.size()) : 0,
+        const_cast<UINT8*>(payload.empty() ? nullptr : payload.data()),
+        static_cast<UINT32>(payload.size()),
         0,
         session.proto == engine::md::MdProtocol::TCP ? TRDP_MD_TCP : TRDP_MD_UDP,
         0,
@@ -345,6 +347,18 @@ std::vector<uint8_t> TrdpAdapter::getLastPdPayload() const
 {
     std::lock_guard<std::mutex> lk(m_errMtx);
     return m_lastPdPayload;
+}
+
+std::vector<uint8_t> TrdpAdapter::getLastMdRequestPayload() const
+{
+    std::lock_guard<std::mutex> lk(m_errMtx);
+    return m_lastMdRequestPayload;
+}
+
+std::vector<uint8_t> TrdpAdapter::getLastMdReplyPayload() const
+{
+    std::lock_guard<std::mutex> lk(m_errMtx);
+    return m_lastMdReplyPayload;
 }
 
 std::vector<uint32_t> TrdpAdapter::getRequestedSessions() const

@@ -38,8 +38,8 @@ public:
     void handlePdCallback(uint32_t comId, const uint8_t* data, std::size_t len);
 
     // MD
-    int sendMdRequest(engine::md::MdSessionRuntime& session);
-    int sendMdReply(engine::md::MdSessionRuntime& session);
+    int sendMdRequest(engine::md::MdSessionRuntime& session, const std::vector<uint8_t>& payload);
+    int sendMdReply(engine::md::MdSessionRuntime& session, const std::vector<uint8_t>& payload);
     void handleMdCallback(uint32_t sessionId, const uint8_t* data, std::size_t len);
 
     // Event loop integration
@@ -50,6 +50,8 @@ public:
 
     // Helpful for tests/stubs
     std::vector<uint8_t> getLastPdPayload() const;
+    std::vector<uint8_t> getLastMdRequestPayload() const;
+    std::vector<uint8_t> getLastMdReplyPayload() const;
     std::vector<uint32_t> getRequestedSessions() const;
     std::vector<uint32_t> getRepliedSessions() const;
 
@@ -59,6 +61,8 @@ private:
     TrdpErrorCounters m_errorCounters {};
     std::optional<uint32_t> m_lastErrorCode;
     std::vector<uint8_t> m_lastPdPayload;
+    std::vector<uint8_t> m_lastMdRequestPayload;
+    std::vector<uint8_t> m_lastMdReplyPayload;
     std::vector<uint32_t> m_requestedSessions;
     std::vector<uint32_t> m_repliedSessions;
 

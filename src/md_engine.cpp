@@ -264,7 +264,7 @@ void MdEngine::dispatchRequestLocked(MdSessionRuntime& session)
         std::lock_guard<std::mutex> dsLock(session.requestData->mtx);
         payload = marshalDataSet(*session.requestData, m_ctx);
     }
-    int rc = m_adapter.sendMdRequest(session);
+    int rc = m_adapter.sendMdRequest(session, payload);
     if (rc != 0) {
         session.state = MdSessionState::ERROR;
         return;
@@ -277,7 +277,6 @@ void MdEngine::dispatchRequestLocked(MdSessionRuntime& session)
     if (session.mdCom)
         session.deadline = now + std::chrono::microseconds(session.mdCom->replyTimeoutUs);
     session.lastStateChange = now;
-    (void)payload;
 }
 
 void MdEngine::dispatchReplyLocked(MdSessionRuntime& session)
@@ -290,7 +289,7 @@ void MdEngine::dispatchReplyLocked(MdSessionRuntime& session)
         std::lock_guard<std::mutex> dsLock(session.responseData->mtx);
         payload = marshalDataSet(*session.responseData, m_ctx);
     }
-    int rc = m_adapter.sendMdReply(session);
+    int rc = m_adapter.sendMdReply(session, payload);
     if (rc != 0) {
         session.state = MdSessionState::ERROR;
         return;
@@ -303,7 +302,6 @@ void MdEngine::dispatchReplyLocked(MdSessionRuntime& session)
     if (session.mdCom)
         session.deadline = now + std::chrono::microseconds(session.mdCom->confirmTimeoutUs);
     session.lastStateChange = now;
-    (void)payload;
 }
 
 const char* MdEngine::stateToString(MdSessionState state)
