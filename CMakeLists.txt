@@ -150,6 +150,9 @@ if(TRDP_ENABLE_APP)
 
     add_executable(trdp-simulator
         ${TRDP_SIM_SRC_DIR}/backend_api.cpp
+        ${TRDP_SIM_SRC_DIR}/auth_manager.cpp
+        ${TRDP_SIM_SRC_DIR}/realtime_hub.cpp
+        ${TRDP_SIM_SRC_DIR}/realtime_stream.cpp
         ${TRDP_SIM_SRC_DIR}/main.cpp)
 
     target_include_directories(trdp-simulator

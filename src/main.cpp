@@ -2,6 +2,9 @@
 #include "backend_engine.hpp"
 #include "diagnostic_manager.hpp"
 #include "engine_context.hpp"
+#include "auth_manager.hpp"
+#include "realtime_hub.hpp"
+#include "realtime_stream.hpp"
 #include "md_engine.hpp"
 #include "pd_engine.hpp"
 #include "trdp_adapter.hpp"
@@ -116,6 +119,11 @@ int main(int argc, char* argv[])
 
     api::BackendApi api(ctx, backend, pdEngine, mdEngine, diagMgr);
 
+    auth::AuthManager        authMgr;
+    realtime::RealtimeHub    hub(ctx, api, diagMgr, authMgr);
+    RealtimeStream::bootstrap(&authMgr, &hub);
+    hub.start();
+
     ctx.running = true;
     std::thread trdpThread(
         [&]()
@@ -136,8 +144,133 @@ int main(int argc, char* argv[])
         return resp;
     };
 
+    auto extractToken = [](const HttpRequestPtr& req)
+    {
+        std::string token;
+        auto        authHeader = req->getHeader("Authorization");
+        if (!authHeader.empty())
+        {
+            const std::string bearer = "Bearer ";
+            if (authHeader.rfind(bearer, 0) == 0)
+                token = authHeader.substr(bearer.size());
+        }
+        if (token.empty())
+            token = req->getCookie("trdp_session");
+        return token;
+    };
+
     app().addListener("0.0.0.0", 8848);
     app().setThreadNum(std::max(2u, std::thread::hardware_concurrency()));
+
+    // Auth login
+    app().registerHandler(
+        "/api/auth/login",
+        [&authMgr, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            auto json = req->getJsonObject();
+            if (!json || !json->isMember("username") || !json->isMember("password"))
+            {
+                cb(jsonResponse({{"error", "username/password required"}}, k400BadRequest));
+                return;
+            }
+            auto session = authMgr.login((*json)["username"].asString(), (*json)["password"].asString());
+            if (!session)
+            {
+                cb(jsonResponse({{"error", "invalid credentials"}}, k401Unauthorized));
+                return;
+            }
+            auto resp = jsonResponse({{"token", session->token}, {"role", auth::roleToString(session->role)},
+                                       {"theme", session->theme}},
+                                     k200OK);
+            resp->addCookie("trdp_session", session->token);
+            cb(resp);
+        },
+        {Post});
+
+    // Auth logout
+    app().registerHandler(
+        "/api/auth/logout",
+        [&authMgr, extractToken, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            auto token = extractToken(req);
+            if (!token.empty())
+                authMgr.logout(token);
+            cb(jsonResponse({{"status", "ok"}}, k200OK));
+        },
+        {Post});
+
+    // Auth session
+    app().registerHandler(
+        "/api/auth/session",
+        [&authMgr, extractToken, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            auto token   = extractToken(req);
+            auto session = authMgr.validate(token);
+            if (!session)
+            {
+                cb(jsonResponse({{"error", "unauthorized"}}, k401Unauthorized));
+                return;
+            }
+            cb(jsonResponse({{"username", session->username}, {"role", auth::roleToString(session->role)},
+                             {"theme", session->theme}},
+                            k200OK));
+        },
+        {Get});
+
+    // Theme update
+    app().registerHandler(
+        "/api/ui/theme",
+        [&authMgr, extractToken, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            auto token   = extractToken(req);
+            auto session = authMgr.validate(token);
+            if (!session)
+            {
+                cb(jsonResponse({{"error", "unauthorized"}}, k401Unauthorized));
+                return;
+            }
+            auto json = req->getJsonObject();
+            if (!json || !json->isMember("theme"))
+            {
+                cb(jsonResponse({{"error", "theme required"}}, k400BadRequest));
+                return;
+            }
+            authMgr.updateTheme(token, (*json)["theme"].asString());
+            cb(jsonResponse({{"theme", (*json)["theme"].asString()}}, k200OK));
+        },
+        {Post});
+
+    // Layout manifest for dashboards/panels
+    app().registerHandler(
+        "/api/ui/layout",
+        [&jsonResponse](const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            nlohmann::json layout{{"panels", nlohmann::json::array()}};
+            layout["panels"].push_back({{"id", "pd"}, {"title", "PD Dashboard"}, {"features", {"live"}}});
+            layout["panels"].push_back({{"id", "md"}, {"title", "MD Dashboard"}, {"features", {"sessions"}}});
+            layout["panels"].push_back({{"id", "datasets"}, {"title", "Dataset Editor"}, {"features", {"edit"}}});
+            layout["panels"].push_back({{"id", "xml"}, {"title", "XML Visual Viewer"}, {"features", {"tree"}}});
+            layout["panels"].push_back({{"id", "logs"}, {"title", "Log Viewer"}, {"features", {"stream"}}});
+            layout["panels"].push_back({{"id", "interfaces"}, {"title", "Interface Diagnostics"},
+                                         {"features", {"qos", "redundancy"}}});
+            layout["panels"].push_back({{"id", "theme"}, {"title", "Theme Switch"}, {"features", {"dark", "light"}}});
+            cb(jsonResponse(layout, k200OK));
+        },
+        {Get});
+
+    // UI overview snapshot
+    app().registerHandler(
+        "/api/ui/overview",
+        [&api, &diagMgr, jsonResponse](const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            nlohmann::json snap;
+            snap["pd"]      = api.getPdStatus();
+            snap["metrics"] = api.getDiagnosticsMetrics();
+            snap["config"]  = api.getConfigSummary();
+            snap["events"]  = api.getRecentEvents(25);
+            cb(jsonResponse(snap, k200OK));
+        },
+        {Get});
 
     // PD status
     app().registerHandler("/api/pd/status",
