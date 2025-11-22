@@ -38,6 +38,8 @@ struct PdTelegramRuntime {
     bool enabled {false};
     bool redundantActive {false};
     uint32_t activeChannel {0};
+    TRDP_PUB_T pubHandle {nullptr};
+    TRDP_SUB_T subHandle {nullptr};
     std::mutex mtx;
 };
 

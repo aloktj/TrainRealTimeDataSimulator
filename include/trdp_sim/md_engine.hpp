@@ -40,6 +40,7 @@ struct MdSessionRuntime {
     data::DataSetInstance* responseData {nullptr};
     MdSessionState state {MdSessionState::IDLE};
     uint32_t retryCount {0};
+    TRDP_LR_T mdHandle {0};
     std::chrono::steady_clock::time_point lastStateChange {};
     std::mutex mtx;
 };
