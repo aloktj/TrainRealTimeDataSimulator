@@ -111,6 +111,7 @@ namespace diag
         bool                       logToStdout{true};
         std::optional<std::string> filePath{};
         std::size_t                maxFileSizeBytes{0};
+        std::optional<std::string> exportTarget{};
     };
 
     struct PcapConfig
@@ -121,6 +122,7 @@ namespace diag
         std::optional<std::string> filePath{};
         std::size_t                maxFileSizeBytes{0};
         std::size_t                maxFiles{2};
+        std::optional<std::string> exportTarget{};
     };
 
     class DiagnosticManager
@@ -160,6 +162,9 @@ namespace diag
         bool        ensurePcapFileUnlocked(std::size_t nextPacketSize);
         void        rotatePcapFilesUnlocked();
         void        writePcapGlobalHeader();
+        void        shipArtifact(const std::filesystem::path& source,
+                                  const std::optional<std::string>&   target,
+                                  const std::string& prefix);
 
         trdp_sim::EngineContext&     m_ctx;
         engine::pd::PdEngine&        m_pd;

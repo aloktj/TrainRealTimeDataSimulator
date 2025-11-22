@@ -54,10 +54,13 @@ namespace api
         // Diagnostics:
         nlohmann::json getRecentEvents(std::size_t maxEvents) const;
         std::string    exportRecentEventsText(std::size_t maxEvents) const;
+        bool           exportRecentEventsToFile(std::size_t maxEvents, bool asJson,
+                                               const std::filesystem::path& destination) const;
         void           triggerDiagnosticEvent(const std::string& severity, const std::string& component,
                                               const std::string&                message,
                                               const std::optional<std::string>& extraJson = std::nullopt);
         void           enablePcap(bool enable);
+        bool           exportPcapCapture(const std::filesystem::path& destination) const;
         nlohmann::json getDiagnosticsMetrics() const;
         std::optional<std::filesystem::path> getPcapCapturePath() const;
         std::optional<std::filesystem::path> getLogFilePath() const;

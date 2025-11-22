@@ -95,12 +95,26 @@ header {
   background: var(--warning);
 }
 
+.badge.debug {
+  background: #6b7280;
+  color: #fff;
+}
+
 .badge.danger {
   background: var(--danger);
 }
 
+.badge.fatal {
+  background: #7f1d1d;
+}
+
 .badge.info {
   background: var(--info);
+}
+
+.badge.neutral {
+  background: #6366f1;
+  color: #fff;
 }
 
 .table-scroll {
@@ -193,6 +207,38 @@ button:focus-visible {
   display: grid;
   gap: 0.75rem;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.controls-row {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.stat-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.5rem;
+}
+
+.stat-bar__label {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.stat-bar__track {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+  height: 10px;
+}
+
+.stat-bar__fill {
+  background: var(--accent);
+  height: 100%;
 }
 
 .touch-target {

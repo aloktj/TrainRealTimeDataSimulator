@@ -4,6 +4,7 @@
 #include <cctype>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <mutex>
 #include <optional>
@@ -703,6 +704,29 @@ namespace api
         return oss.str();
     }
 
+    bool BackendApi::exportRecentEventsToFile(std::size_t maxEvents, bool asJson,
+                                              const std::filesystem::path& destination) const
+    {
+        try
+        {
+            if (!destination.parent_path().empty())
+                std::filesystem::create_directories(destination.parent_path());
+            std::ofstream out(destination);
+            if (!out.is_open())
+                return false;
+
+            if (asJson)
+                out << getRecentEvents(maxEvents).dump(2);
+            else
+                out << exportRecentEventsText(maxEvents);
+            return true;
+        }
+        catch (...)
+        {
+            return false;
+        }
+    }
+
     nlohmann::json BackendApi::getDiagnosticsMetrics() const
     {
         auto           m = m_diag.getMetrics();
@@ -798,6 +822,24 @@ namespace api
     void BackendApi::enablePcap(bool enable)
     {
         m_diag.enablePcapCapture(enable);
+    }
+
+    bool BackendApi::exportPcapCapture(const std::filesystem::path& destination) const
+    {
+        auto path = getPcapCapturePath();
+        if (!path || !std::filesystem::exists(*path))
+            return false;
+        try
+        {
+            if (!destination.parent_path().empty())
+                std::filesystem::create_directories(destination.parent_path());
+            std::filesystem::copy_file(*path, destination, std::filesystem::copy_options::overwrite_existing);
+            return true;
+        }
+        catch (...)
+        {
+            return false;
+        }
     }
 
     bool BackendApi::backupConfiguration(const std::filesystem::path& destination) const
