@@ -82,11 +82,13 @@ endif()
 set(TRDP_SIM_CORE_SOURCES
     ${TRDP_SIM_SRC_DIR}/engine_context.cpp
     ${TRDP_SIM_SRC_DIR}/config_manager.cpp
+    ${TRDP_SIM_SRC_DIR}/xml_loader.cpp
     ${TRDP_SIM_SRC_DIR}/data_types.cpp
     ${TRDP_SIM_SRC_DIR}/data_marshalling.cpp
     ${TRDP_SIM_SRC_DIR}/pd_engine.cpp
     ${TRDP_SIM_SRC_DIR}/md_engine.cpp
     ${TRDP_SIM_SRC_DIR}/diagnostic_manager.cpp
+    ${TRDP_SIM_SRC_DIR}/backend_engine.cpp
     ${TRDP_ADAPTER_SOURCE}
 )
 

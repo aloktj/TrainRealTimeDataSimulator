@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -12,6 +13,25 @@ namespace data
 
 namespace config
 {
+
+    struct SchemaIssue
+    {
+        std::string message;
+        int         line{0};
+    };
+
+    class ConfigError : public std::runtime_error
+    {
+      public:
+        ConfigError(const std::string& filePath, int line, const std::string& message);
+
+        int         line() const { return m_line; }
+        const std::string& file() const { return m_file; }
+
+      private:
+        std::string m_file;
+        int         m_line{};
+    };
 
     // ---- Structs from DDS, simplified where needed ----
 
@@ -205,8 +225,10 @@ namespace config
     class ConfigManager
     {
       public:
-        DeviceConfig loadDeviceConfigFromXml(const std::string& path);
+        DeviceConfig loadDeviceConfigFromXml(const std::string& path, bool validateSchema = true);
         void         validateDeviceConfig(const DeviceConfig& cfg);
+
+        std::vector<SchemaIssue> validateXmlSchema(const std::string& path);
 
         std::vector<data::DataSetDef> buildDataSetDefs(const DeviceConfig& cfg);
     };

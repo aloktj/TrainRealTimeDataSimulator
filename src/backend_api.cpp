@@ -12,9 +12,9 @@
 namespace api
 {
 
-    BackendApi::BackendApi(trdp_sim::EngineContext& ctx, engine::pd::PdEngine& pd, engine::md::MdEngine& md,
-                           diag::DiagnosticManager& diag)
-        : m_ctx(ctx), m_pd(pd), m_md(md), m_diag(diag)
+    BackendApi::BackendApi(trdp_sim::EngineContext& ctx, trdp_sim::BackendEngine& backend, engine::pd::PdEngine& pd,
+                           engine::md::MdEngine& md, diag::DiagnosticManager& diag)
+        : m_ctx(ctx), m_pd(pd), m_md(md), m_diag(diag), m_backend(backend)
     {
     }
 
@@ -229,37 +229,7 @@ namespace api
 
     void BackendApi::reloadConfiguration(const std::string& xmlPath)
     {
-        config::ConfigManager cfgMgr;
-        auto                  cfg = cfgMgr.loadDeviceConfigFromXml(xmlPath);
-        cfgMgr.validateDeviceConfig(cfg);
-
-        m_pd.stop();
-        m_md.stop();
-
-        m_ctx.pdTelegrams.clear();
-        m_ctx.mdSessions.clear();
-
-        m_ctx.deviceConfig = cfg;
-
-        std::unordered_map<uint32_t, data::DataSetDef>                       newDefs;
-        std::unordered_map<uint32_t, std::unique_ptr<data::DataSetInstance>> newInsts;
-        auto defs = cfgMgr.buildDataSetDefs(m_ctx.deviceConfig);
-        for (auto& def : defs)
-        {
-            newDefs[def.id] = def;
-            auto inst       = std::make_unique<data::DataSetInstance>();
-            inst->def       = &newDefs[def.id];
-            inst->values.resize(def.elements.size());
-            newInsts[def.id] = std::move(inst);
-        }
-        m_ctx.dataSetDefs      = std::move(newDefs);
-        m_ctx.dataSetInstances = std::move(newInsts);
-
-        m_pd.initializeFromConfig();
-        m_md.initializeFromConfig();
-
-        m_pd.start();
-        m_md.start();
+        m_backend.reloadConfiguration(xmlPath);
     }
 
     nlohmann::json BackendApi::getConfigSummary() const
@@ -286,6 +256,127 @@ namespace api
         j["mdTelegrams"]                  = mdCount;
         j["runtime"]["activePdTelegrams"] = m_ctx.pdTelegrams.size();
         j["runtime"]["activeMdSessions"]  = m_ctx.mdSessions.size();
+        return j;
+    }
+
+    nlohmann::json BackendApi::getConfigDetail() const
+    {
+        nlohmann::json j;
+        const auto&    cfg = m_ctx.deviceConfig;
+        j["device"]["hostName"]   = cfg.hostName;
+        j["device"]["leaderName"] = cfg.leaderName;
+        j["device"]["type"]       = cfg.type;
+
+        j["memory"]["memorySize"] = cfg.memory.memorySize;
+        for (const auto& blk : cfg.memory.blocks)
+        {
+            j["memory"]["blocks"].push_back({{"size", blk.size}, {"preallocate", blk.preallocate}});
+        }
+
+        if (cfg.debug)
+        {
+            j["debug"]["fileName"] = cfg.debug->fileName;
+            j["debug"]["fileSize"] = cfg.debug->fileSize;
+            j["debug"]["info"]     = cfg.debug->info;
+            j["debug"]["level"]    = std::string(1, cfg.debug->level);
+        }
+
+        if (cfg.pcap)
+        {
+            j["pcap"]["enabled"]      = cfg.pcap->enabled;
+            j["pcap"]["captureTx"]    = cfg.pcap->captureTx;
+            j["pcap"]["captureRx"]    = cfg.pcap->captureRx;
+            j["pcap"]["fileName"]     = cfg.pcap->fileName;
+            j["pcap"]["maxSizeBytes"] = cfg.pcap->maxSizeBytes;
+            j["pcap"]["maxFiles"]     = cfg.pcap->maxFiles;
+        }
+
+        for (const auto& cp : cfg.comParameters)
+        {
+            j["comParameters"].push_back({{"id", cp.id}, {"qos", cp.qos}, {"ttl", cp.ttl}});
+        }
+
+        for (const auto& ds : cfg.dataSets)
+        {
+            nlohmann::json dsJson;
+            dsJson["id"]   = ds.id;
+            dsJson["name"] = ds.name;
+            for (const auto& el : ds.elements)
+            {
+                dsJson["elements"].push_back(
+                    {{"name", el.name}, {"type", el.type}, {"arraySize", el.arraySize}});
+            }
+            j["dataSets"].push_back(dsJson);
+        }
+
+        for (const auto& iface : cfg.interfaces)
+        {
+            nlohmann::json ifaceJson;
+            ifaceJson["name"]      = iface.name;
+            ifaceJson["networkId"] = iface.networkId;
+            if (iface.hostIp)
+                ifaceJson["hostIp"] = *iface.hostIp;
+            ifaceJson["pdCom"] = {{"port", iface.pdCom.port},
+                                    {"qos", iface.pdCom.qos},
+                                    {"ttl", iface.pdCom.ttl},
+                                    {"timeoutUs", iface.pdCom.timeoutUs}};
+            ifaceJson["mdCom"] = {{"udpPort", iface.mdCom.udpPort},
+                                    {"tcpPort", iface.mdCom.tcpPort},
+                                    {"replyTimeoutUs", iface.mdCom.replyTimeoutUs},
+                                    {"confirmTimeoutUs", iface.mdCom.confirmTimeoutUs},
+                                    {"connectTimeoutUs", iface.mdCom.connectTimeoutUs},
+                                    {"protocol", iface.mdCom.protocol == config::MdComParameter::Protocol::TCP ? "TCP"
+                                                                                                                  : "UDP"}};
+
+            for (const auto& tel : iface.telegrams)
+            {
+                nlohmann::json telJson;
+                telJson["name"]           = tel.name;
+                telJson["comId"]          = tel.comId;
+                telJson["dataSetId"]      = tel.dataSetId;
+                telJson["comParameterId"] = tel.comParameterId;
+                telJson["hasPdParameters"] = static_cast<bool>(tel.pdParam);
+                if (tel.pdParam)
+                {
+                    telJson["pd"]["cycleUs"]          = tel.pdParam->cycleUs;
+                    telJson["pd"]["timeoutUs"]        = tel.pdParam->timeoutUs;
+                    telJson["pd"]["validityBehavior"] = tel.pdParam->validityBehavior ==
+                                                                   config::PdComParameter::ValidityBehavior::KEEP
+                                                               ? "KEEP"
+                                                               : "ZERO";
+                    telJson["pd"]["redundant"] = tel.pdParam->redundant;
+                }
+
+                for (const auto& dst : tel.destinations)
+                {
+                    telJson["destinations"].push_back(
+                        {{"id", dst.id}, {"uri", dst.uri}, {"name", dst.name}});
+                }
+                ifaceJson["telegrams"].push_back(telJson);
+            }
+            j["interfaces"].push_back(ifaceJson);
+        }
+
+        for (const auto& dev : cfg.mappedDevices)
+        {
+            nlohmann::json devJson;
+            devJson["hostName"]   = dev.hostName;
+            devJson["leaderName"] = dev.leaderName;
+            for (const auto& iface : dev.interfaces)
+            {
+                nlohmann::json ifaceJson;
+                ifaceJson["name"]     = iface.name;
+                ifaceJson["hostIp"]   = iface.hostIp;
+                ifaceJson["leaderIp"] = iface.leaderIp;
+                for (const auto& tel : iface.mappedTelegrams)
+                {
+                    ifaceJson["telegrams"].push_back({{"name", tel.name}, {"comId", tel.comId}});
+                }
+                devJson["interfaces"].push_back(ifaceJson);
+            }
+            j["mappedDevices"].push_back(devJson);
+        }
+
         return j;
     }
 

@@ -8,6 +8,7 @@
 
 #include "diagnostic_manager.hpp"
 #include "engine_context.hpp"
+#include "backend_engine.hpp"
 #include "md_engine.hpp"
 #include "pd_engine.hpp"
 
@@ -20,8 +21,8 @@ namespace api
     class BackendApi
     {
       public:
-        BackendApi(trdp_sim::EngineContext& ctx, engine::pd::PdEngine& pd, engine::md::MdEngine& md,
-                   diag::DiagnosticManager& diag);
+        BackendApi(trdp_sim::EngineContext& ctx, trdp_sim::BackendEngine& backend, engine::pd::PdEngine& pd,
+                   engine::md::MdEngine& md, diag::DiagnosticManager& diag);
 
         // PD related:
         nlohmann::json getPdStatus() const;
@@ -40,6 +41,7 @@ namespace api
         // Config and control:
         void           reloadConfiguration(const std::string& xmlPath);
         nlohmann::json getConfigSummary() const;
+        nlohmann::json getConfigDetail() const;
 
         // Diagnostics:
         nlohmann::json getRecentEvents(std::size_t maxEvents) const;
@@ -54,6 +56,7 @@ namespace api
         engine::pd::PdEngine&    m_pd;
         engine::md::MdEngine&    m_md;
         diag::DiagnosticManager& m_diag;
+        trdp_sim::BackendEngine& m_backend;
     };
 
 } // namespace api
