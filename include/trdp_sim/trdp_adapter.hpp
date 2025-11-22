@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
+#include <vector>
 
 #include "engine_context.hpp"
 
@@ -17,6 +19,7 @@ public:
     // PD
     int publishPd(const engine::pd::PdTelegramRuntime& pd);
     int subscribePd(engine::pd::PdTelegramRuntime& pd);
+    int sendPdData(const engine::pd::PdTelegramRuntime& pd, const std::vector<uint8_t>& payload);
 
     // Callbacks from TRDP stack (will be called by C layer)
     void handlePdCallback(uint32_t comId, const uint8_t* data, std::size_t len);

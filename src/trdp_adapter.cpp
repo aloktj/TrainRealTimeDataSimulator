@@ -149,6 +149,30 @@ int TrdpAdapter::subscribePd(engine::pd::PdTelegramRuntime& pd)
     return 0;
 }
 
+int TrdpAdapter::sendPdData(const engine::pd::PdTelegramRuntime& pd, const std::vector<uint8_t>& payload)
+{
+    if (!m_ctx.trdpSession || !pd.cfg || !pd.pdComCfg)
+        return -1;
+
+    if (!pd.pubHandle) {
+        int rc = publishPd(pd);
+        if (rc != 0)
+            return rc;
+    }
+
+    TRDP_ERR_T err = tlp_put(
+        m_ctx.trdpSession,
+        pd.pubHandle,
+        const_cast<UINT8*>(payload.empty() ? nullptr : payload.data()),
+        static_cast<UINT32>(payload.size()));
+
+    if (err != TRDP_NO_ERR) {
+        std::cerr << "tlp_put failed for COM ID " << pd.cfg->comId << " error=" << err << std::endl;
+        return -static_cast<int>(err);
+    }
+    return 0;
+}
+
 void TrdpAdapter::handlePdCallback(uint32_t comId, const uint8_t* data, std::size_t len)
 {
     if (m_ctx.pdEngine) {
