@@ -1,0 +1,9 @@
+{
+  "name": "basic-md-roundtrip",
+  "steps": [
+    {"name": "enable pd publisher", "action": "pd_enable", "comId": 1000, "enabled": true},
+    {"name": "seed request dataset", "action": "dataset_set", "dataSetId": 101, "element": 0, "raw": "0x00010203"},
+    {"name": "issue md request", "action": "md_request", "comId": 3001, "waitMs": 2000, "expectState": "REPLY_RECEIVED"},
+    {"name": "verify dataset echo", "action": "assert_dataset", "dataSetId": 101, "expectHex": "00010203"}
+  ]
+}
