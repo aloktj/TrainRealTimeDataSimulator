@@ -15,6 +15,7 @@ option(TRDP_USE_STUBS "Use built-in TRDP stub implementation (CI-friendly)" ON)
 option(TRDP_ENABLE_APP "Build the simulator executable" ON)
 option(TRDP_ENABLE_TESTS "Build unit tests" ON)
 option(TRDP_WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
+option(TRDP_PI_OPTIMIZED "Enable Raspberry Pi-specific tuning flags" OFF)
 set(TRDP_SANITIZER "none" CACHE STRING "Sanitizer preset (none, address, undefined, thread)")
 set(TRDP_INCLUDE_DIR "" CACHE PATH "Path to TRDP headers (used when TRDP_USE_STUBS=OFF)")
 set(TRDP_LIB_PATH "" CACHE FILEPATH "Path to TRDP static/shared library (used when TRDP_USE_STUBS=OFF)")
@@ -24,6 +25,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 include(FetchContent)
+include(GNUInstallDirs)
 
 # -------------------------
 # Dependencies
@@ -141,8 +143,17 @@ elif(TRDP_SANITIZER STREQUAL "thread")
     set(_san_flags -fsanitize=thread)
 endif()
 
+set(_pi_flags)
+if(TRDP_PI_OPTIMIZED)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm|aarch64")
+        list(APPEND _pi_flags -mcpu=cortex-a72 -mfpu=neon-fp-armv8 -mfloat-abi=hard)
+    else()
+        message(WARNING "TRDP_PI_OPTIMIZED is enabled but the target architecture is not ARM; flags will be omitted.")
+    endif()
+endif()
+
 foreach(tgt trdp-simulator-core)
-    target_compile_options(${tgt} PRIVATE ${_warn_flags} ${_san_flags})
+    target_compile_options(${tgt} PRIVATE ${_warn_flags} ${_san_flags} ${_pi_flags})
     target_link_options(${tgt} PRIVATE ${_san_flags})
 endforeach()
 
@@ -178,7 +189,7 @@ if(TRDP_ENABLE_APP)
     endif()
 
     foreach(tgt trdp-simulator)
-        target_compile_options(${tgt} PRIVATE ${_warn_flags} ${_san_flags})
+        target_compile_options(${tgt} PRIVATE ${_warn_flags} ${_san_flags} ${_pi_flags})
         target_link_options(${tgt} PRIVATE ${_san_flags})
     endforeach()
 endif()
@@ -211,3 +222,28 @@ if(TRDP_ENABLE_TESTS)
     include(GoogleTest)
     gtest_discover_tests(trdp-simulator-tests)
 endif()
+
+# -------------------------
+# Install & packaging
+# -------------------------
+if(TRDP_ENABLE_APP)
+    install(TARGETS trdp-simulator RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    install(FILES config/trdp.xml DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/trdp-simulator)
+    install(FILES config/trdp-simulator.env DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/default)
+    install(FILES config/systemd/trdp-simulator.service
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/systemd/system)
+endif()
+
+set(CPACK_PACKAGE_VENDOR "TrainRealTimeDataSimulator")
+set(CPACK_PACKAGE_CONTACT "maintainers@trainrealtimedatasimulator.local")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "TRDP simulator with HTTP API, PD/MD controls, and diagnostics")
+set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
+set(CPACK_PACKAGE_FILE_NAME "trdp-simulator-${PROJECT_VERSION}-linux")
+set(CPACK_GENERATOR "DEB")
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "TRDP Simulator Team")
+set(CPACK_DEBIAN_PACKAGE_SECTION "net")
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "libdrogon-dev, libssl3, libtinyxml2-9, nlohmann-json3-dev")
+set(CPACK_DEBIAN_ARCHITECTURE ${CMAKE_SYSTEM_PROCESSOR})
+
+include(CPack)

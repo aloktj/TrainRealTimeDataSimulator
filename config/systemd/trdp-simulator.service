@@ -1,0 +1,16 @@
+[Unit]
+Description=TRDP Simulator HTTP API and PD/MD engine
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=-/etc/default/trdp-simulator
+ExecStart=/usr/bin/trdp-simulator --config /etc/trdp-simulator/trdp.xml $TRDP_SIMULATOR_OPTS
+Restart=on-failure
+User=root
+Group=root
+RuntimeDirectory=trdp-simulator
+RuntimeDirectoryMode=0755
+
+[Install]
+WantedBy=multi-user.target
