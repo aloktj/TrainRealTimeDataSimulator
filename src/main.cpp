@@ -513,6 +513,160 @@ int main(int argc, char* argv[])
         },
         {Post});
 
+    // Simulation controls
+    app().registerHandler(
+        "/api/sim/injection",
+        [&api, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            auto json = req->getJsonObject();
+            if (json && json->get("clear", false).asBool())
+            {
+                api.clearInjectionRules();
+                cb(jsonResponse(api.getSimulationState()));
+                return;
+            }
+            if (!json || !json->isMember("type") || !json->isMember("id"))
+            {
+                cb(jsonResponse({{"error", "'type' and 'id' required"}}, k400BadRequest));
+                return;
+            }
+            trdp_sim::SimulationControls::InjectionRule rule{};
+            if (json->isMember("corruptComId"))
+                rule.corruptComId = (*json)["corruptComId"].asBool();
+            if (json->isMember("corruptDataSet"))
+                rule.corruptDataSetId = (*json)["corruptDataSet"].asBool();
+            if (json->isMember("seqDelta"))
+                rule.seqDelta = (*json)["seqDelta"].asInt();
+            if (json->isMember("delayMs"))
+                rule.delayMs = static_cast<uint32_t>((*json)["delayMs"].asUInt());
+            if (json->isMember("lossRate"))
+                rule.lossRate = (*json)["lossRate"].asDouble();
+
+            auto type = (*json)["type"].asString();
+            auto id   = (*json)["id"].asUInt();
+            if (type == "pd")
+                api.upsertPdInjectionRule(id, rule);
+            else if (type == "md")
+                api.upsertMdInjectionRule(id, rule);
+            else if (type == "dataset")
+                api.upsertDataSetInjectionRule(id, rule);
+            else
+            {
+                cb(jsonResponse({{"error", "type must be pd, md, or dataset"}}, k400BadRequest));
+                return;
+            }
+
+            cb(jsonResponse(api.getSimulationState()));
+        },
+        {Post});
+
+    app().registerHandler("/api/sim/state",
+                          [&api, jsonResponse](const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& cb)
+                          { cb(jsonResponse(api.getSimulationState())); },
+                          {Get});
+
+    app().registerHandler(
+        "/api/sim/stress",
+        [&api, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            auto json = req->getJsonObject();
+            if (!json)
+            {
+                cb(jsonResponse({{"error", "invalid payload"}}, k400BadRequest));
+                return;
+            }
+            trdp_sim::SimulationControls::StressMode mode{};
+            mode.enabled          = json->get("enabled", false).asBool();
+            mode.pdCycleOverrideUs = json->get("pdCycleUs", 0).asUInt();
+            mode.mdBurst          = json->get("mdBurst", 0).asUInt();
+            mode.mdIntervalUs     = json->get("mdIntervalUs", 0).asUInt();
+            api.setStressMode(mode);
+            cb(jsonResponse(api.getSimulationState()));
+        },
+        {Post});
+
+    app().registerHandler(
+        "/api/sim/redundancy",
+        [&api, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            auto json = req->getJsonObject();
+            if (!json)
+            {
+                cb(jsonResponse({{"error", "invalid payload"}}, k400BadRequest));
+                return;
+            }
+            trdp_sim::SimulationControls::RedundancySimulation sim{};
+            sim.forceSwitch  = json->get("forceSwitch", false).asBool();
+            sim.busFailure   = json->get("busFailure", false).asBool();
+            sim.failedChannel = json->get("failedChannel", 0).asUInt();
+            api.setRedundancySimulation(sim);
+            cb(jsonResponse(api.getSimulationState()));
+        },
+        {Post});
+
+    app().registerHandler(
+        "/api/sim/time",
+        [&api, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            auto json = req->getJsonObject();
+            if (!json)
+            {
+                cb(jsonResponse({{"error", "invalid payload"}}, k400BadRequest));
+                return;
+            }
+            trdp_sim::SimulationControls::TimeSyncOffsets offsets{};
+            offsets.ntpOffsetUs = json->get("ntpOffsetUs", 0).asInt64();
+            offsets.ptpOffsetUs = json->get("ptpOffsetUs", 0).asInt64();
+            api.setTimeSyncOffsets(offsets);
+            cb(jsonResponse(api.getSimulationState()));
+        },
+        {Post});
+
+    app().registerHandler("/api/sim/instances",
+                          [&api, jsonResponse](const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& cb)
+                          { cb(jsonResponse(api.listVirtualInstances())); },
+                          {Get});
+
+    app().registerHandler(
+        "/api/sim/instances/register",
+        [&api, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            auto json = req->getJsonObject();
+            if (!json || !json->isMember("name") || !json->isMember("path"))
+            {
+                cb(jsonResponse({{"error", "name and path required"}}, k400BadRequest));
+                return;
+            }
+            std::string err;
+            if (!api.registerVirtualInstance((*json)["name"].asString(), (*json)["path"].asString(), &err))
+            {
+                cb(jsonResponse({{"error", err}}, k400BadRequest));
+                return;
+            }
+            cb(jsonResponse(api.listVirtualInstances()));
+        },
+        {Post});
+
+    app().registerHandler(
+        "/api/sim/instances/activate",
+        [&api, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            auto json = req->getJsonObject();
+            if (!json || !json->isMember("name"))
+            {
+                cb(jsonResponse({{"error", "name required"}}, k400BadRequest));
+                return;
+            }
+            std::string err;
+            if (!api.activateVirtualInstance((*json)["name"].asString(), &err))
+            {
+                cb(jsonResponse({{"error", err}}, k400BadRequest));
+                return;
+            }
+            cb(jsonResponse(api.listVirtualInstances()));
+        },
+        {Post});
+
     // MD session status
     app().registerHandler("/api/md/session/{1}",
                           [&api, jsonResponse](const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& cb,

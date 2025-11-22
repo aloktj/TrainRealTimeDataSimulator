@@ -9,11 +9,45 @@
 #include <cmath>
 #include <iostream>
 #include <memory>
+#include <optional>
+#include <random>
 #include <thread>
 #include <vector>
 
 namespace engine::pd
 {
+
+    namespace
+    {
+        using Rule = trdp_sim::SimulationControls::InjectionRule;
+
+        std::optional<Rule> findRule(const trdp_sim::EngineContext& ctx, uint32_t comId, uint32_t dataSetId)
+        {
+            std::lock_guard<std::mutex> lk(ctx.simulation.mtx);
+            auto                        it = ctx.simulation.pdRules.find(comId);
+            if (it != ctx.simulation.pdRules.end())
+                return it->second;
+            auto dsIt = ctx.simulation.dataSetRules.find(dataSetId);
+            if (dsIt != ctx.simulation.dataSetRules.end())
+                return dsIt->second;
+            return std::nullopt;
+        }
+
+        bool shouldDrop(const Rule& rule)
+        {
+            if (rule.lossRate <= 0.0)
+                return false;
+            thread_local std::mt19937_64 rng{std::random_device{}()};
+            std::uniform_real_distribution<double> dist(0.0, 1.0);
+            return dist(rng) < rule.lossRate;
+        }
+
+        void applyDelay(const Rule& rule)
+        {
+            if (rule.delayMs > 0)
+                std::this_thread::sleep_for(std::chrono::milliseconds(rule.delayMs));
+        }
+    } // namespace
 
     using trdp_sim::util::marshalDataSet;
     using trdp_sim::util::unmarshalDataToDataSet;
@@ -151,16 +185,43 @@ namespace engine::pd
 
     void PdEngine::onPdReceived(uint32_t comId, const uint8_t* data, std::size_t len)
     {
+        const auto baseRule = findRule(m_ctx, comId, 0);
+        if (baseRule)
+        {
+            if (shouldDrop(*baseRule))
+                return;
+            applyDelay(*baseRule);
+        }
+        const uint32_t targetComId = (baseRule && baseRule->corruptComId) ? (comId ^ 0x1u) : comId;
+
         for (auto& pdPtr : m_ctx.pdTelegrams)
         {
             auto& pd = *pdPtr;
-            if (!pd.cfg || pd.cfg->comId != comId || pd.direction != Direction::SUBSCRIBE)
+            if (!pd.cfg || pd.cfg->comId != targetComId || pd.direction != Direction::SUBSCRIBE)
                 continue;
 
             std::lock_guard<std::mutex> lk(pd.mtx);
             auto*                       ds = pd.dataset;
             if (!ds)
                 continue;
+
+            auto rule = findRule(m_ctx, pd.cfg->comId, pd.cfg->dataSetId);
+            if (!rule)
+                rule = baseRule;
+            if (rule && rule->seqDelta != 0)
+            {
+                auto next = static_cast<int64_t>(pd.stats.lastSeqNumber) + rule->seqDelta;
+                pd.stats.lastSeqNumber = next < 0 ? 0 : static_cast<uint64_t>(next);
+            }
+
+            std::vector<uint8_t> mutatedPayload;
+            const uint8_t*       payloadPtr = data;
+            if (rule && rule->corruptDataSetId && data && len > 0)
+            {
+                mutatedPayload.assign(data, data + len);
+                mutatedPayload[0] = static_cast<uint8_t>(mutatedPayload[0] ^ 0xFF);
+                payloadPtr        = mutatedPayload.data();
+            }
 
             auto now       = std::chrono::steady_clock::now();
             auto timeoutUs = pd.cfg->pdParam ? pd.cfg->pdParam->timeoutUs : pd.pdComCfg->timeoutUs;
@@ -203,12 +264,12 @@ namespace engine::pd
                 const bool shouldMarshall = pd.cfg->pdParam ? pd.cfg->pdParam->marshall : pd.pdComCfg->marshall;
                 if (shouldMarshall)
                 {
-                    unmarshalDataToDataSet(*ds, m_ctx, data, len);
+                    unmarshalDataToDataSet(*ds, m_ctx, payloadPtr, len);
                 }
                 else if (!ds->values.empty())
                 {
                     auto& cell = ds->values.front();
-                    cell.raw.assign(data, data + len);
+                    cell.raw.assign(payloadPtr, payloadPtr + len);
                     cell.defined = true;
                 }
             }
@@ -230,11 +291,32 @@ namespace engine::pd
                     continue;
 
                 auto cycle = microseconds(pd.cfg->pdParam->cycleUs);
+                {
+                    std::lock_guard<std::mutex> lk(m_ctx.simulation.mtx);
+                    if (m_ctx.simulation.stress.enabled && m_ctx.simulation.stress.pdCycleOverrideUs > 0)
+                    {
+                        auto overrideCycle = microseconds(m_ctx.simulation.stress.pdCycleOverrideUs);
+                        if (overrideCycle < cycle)
+                            cycle = overrideCycle;
+                    }
+                }
                 if (pd.sendNow || pd.stats.lastTxTime.time_since_epoch().count() == 0 || now - pd.stats.lastTxTime >= cycle)
                 {
                     auto* ds = pd.dataset;
                     if (!ds)
                         continue;
+
+                    const auto rule = pd.cfg ? findRule(m_ctx, pd.cfg->comId, pd.cfg->dataSetId) : std::nullopt;
+                    if (rule)
+                    {
+                        if (shouldDrop(*rule))
+                            continue;
+                        applyDelay(*rule);
+                        if (rule->corruptComId && m_ctx.diagManager)
+                        {
+                            m_ctx.diagManager->log(diag::Severity::WARN, "PD", "Injecting COM ID corruption for PD telegram");
+                        }
+                    }
 
                     std::lock_guard<std::mutex> dsLock(ds->mtx);
                     const bool                  shouldMarshall = pd.cfg->pdParam ? pd.cfg->pdParam->marshall :
@@ -244,6 +326,17 @@ namespace engine::pd
                     if (!shouldMarshall && !ds->values.empty())
                     {
                         payload = ds->values.front().raw;
+                    }
+
+                    if (rule && rule->corruptDataSetId && !payload.empty())
+                        payload[0] = static_cast<uint8_t>(payload[0] ^ 0xFF);
+                    if (rule && rule->corruptComId)
+                        payload.insert(payload.begin(), 0xCD);
+
+                    if (rule && rule->seqDelta != 0)
+                    {
+                        auto next = static_cast<int64_t>(pd.stats.lastSeqNumber) + rule->seqDelta;
+                        pd.stats.lastSeqNumber = next < 0 ? 0 : static_cast<uint64_t>(next);
                     }
 
                     int rc = m_adapter.sendPdData(pd, payload);

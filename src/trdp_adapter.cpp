@@ -282,7 +282,23 @@ namespace trdp_sim::trdp
         const bool sendRedundant = pd.cfg->pdParam && pd.cfg->pdParam->redundant > 0;
         size_t     idx           = pd.activeChannel % (pd.pubChannels.empty() ? 1 : pd.pubChannels.size());
 
-        auto sendOnce = [&](engine::pd::PdTelegramRuntime::PublicationChannel& ch) -> int {
+        trdp_sim::SimulationControls::RedundancySimulation redundancy{};
+        {
+            std::lock_guard<std::mutex> lk(m_ctx.simulation.mtx);
+            redundancy = m_ctx.simulation.redundancy;
+            if (redundancy.forceSwitch && !pd.pubChannels.empty())
+                idx = (idx + 1) % pd.pubChannels.size();
+        }
+
+        auto sendOnce = [&](engine::pd::PdTelegramRuntime::PublicationChannel& ch, size_t channelIdx) -> int {
+            if (redundancy.busFailure && redundancy.failedChannel == channelIdx)
+            {
+                if (m_ctx.diagManager)
+                {
+                    m_ctx.diagManager->log(diag::Severity::WARN, "PD", "Dropping PD due to simulated bus failure");
+                }
+                return -1;
+            }
             if (!ch.handle)
             {
                 int rc = publishPd(pd);
@@ -308,16 +324,17 @@ namespace trdp_sim::trdp
 
         if (sendRedundant)
         {
-            for (auto& ch : pd.pubChannels)
+            for (std::size_t i = 0; i < pd.pubChannels.size(); ++i)
             {
-                int rc = sendOnce(ch);
+                auto& ch = pd.pubChannels[i];
+                int   rc = sendOnce(ch, i);
                 if (rc != 0)
                     return rc;
             }
         }
         else
         {
-            int rc = sendOnce(pd.pubChannels.at(idx));
+            int rc = sendOnce(pd.pubChannels.at(idx), idx);
             if (rc != 0)
                 return rc;
             pd.activeChannel = static_cast<uint32_t>((idx + 1) % pd.pubChannels.size());
