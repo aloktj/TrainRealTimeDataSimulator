@@ -44,6 +44,7 @@ if(NOT tinyxml2_FOUND)
 endif()
 
 find_package(nlohmann_json QUIET)
+find_package(OpenSSL REQUIRED)
 
 set(TRDP_SIM_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include")
 set(TRDP_SIM_SRC_DIR     "${CMAKE_CURRENT_SOURCE_DIR}/src")
@@ -89,6 +90,7 @@ set(TRDP_SIM_CORE_SOURCES
     ${TRDP_SIM_SRC_DIR}/md_engine.cpp
     ${TRDP_SIM_SRC_DIR}/diagnostic_manager.cpp
     ${TRDP_SIM_SRC_DIR}/backend_engine.cpp
+    ${TRDP_SIM_SRC_DIR}/auth_manager.cpp
     ${TRDP_ADAPTER_SOURCE}
 )
 
@@ -100,6 +102,8 @@ target_include_directories(trdp-simulator-core
         ${TRDP_INCLUDE_DIR_FOUND}
 )
 target_link_libraries(trdp-simulator-core
+    PUBLIC
+        OpenSSL::Crypto
     PRIVATE
         tinyxml2::tinyxml2
 )
@@ -150,7 +154,6 @@ if(TRDP_ENABLE_APP)
 
     add_executable(trdp-simulator
         ${TRDP_SIM_SRC_DIR}/backend_api.cpp
-        ${TRDP_SIM_SRC_DIR}/auth_manager.cpp
         ${TRDP_SIM_SRC_DIR}/realtime_hub.cpp
         ${TRDP_SIM_SRC_DIR}/realtime_stream.cpp
         ${TRDP_SIM_SRC_DIR}/main.cpp)

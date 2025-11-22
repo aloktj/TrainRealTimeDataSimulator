@@ -219,9 +219,19 @@ namespace api
         return j;
     }
 
+    std::optional<std::size_t> BackendApi::getExpectedElementSize(uint32_t dataSetId, std::size_t elementIdx) const
+    {
+        auto it = m_ctx.dataSetInstances.find(dataSetId);
+        if (it == m_ctx.dataSetInstances.end())
+            return std::nullopt;
+        return expectedElementSize(it->second.get(), elementIdx, m_ctx);
+    }
+
     bool BackendApi::setDataSetValue(uint32_t dataSetId, std::size_t elementIdx, const std::vector<uint8_t>& value,
                                      std::string* error)
     {
+        static constexpr std::size_t kMaxDataSetPayload = 65536;
+
         auto* inst = m_pd.getDataSetInstance(dataSetId);
         if (!inst)
         {
@@ -255,6 +265,13 @@ namespace api
                 *error = "Unsupported dataset element";
             return false;
         }
+        if (value.size() > kMaxDataSetPayload)
+        {
+            if (error)
+                *error = "Value exceeds maximum allowed payload";
+            return false;
+        }
+
         if (value.size() != expectedSize)
         {
             if (error)

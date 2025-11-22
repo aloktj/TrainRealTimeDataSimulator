@@ -4,6 +4,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace auth
 {
@@ -36,7 +37,8 @@ namespace auth
       private:
         struct UserRecord
         {
-            std::string password;
+            std::string passwordHash;
+            std::string salt;
             Role        role{Role::Viewer};
         };
 
@@ -45,8 +47,15 @@ namespace auth
 
         std::string generateToken() const;
         Role        parseRole(const std::string& roleStr) const;
+        std::string generateSalt() const;
+        std::string hashPassword(const std::string& password, const std::string& salt) const;
+        bool        verifyPassword(const std::string& password, const UserRecord& record) const;
+        void        addOrUpdateUser(const std::string& username, const std::string& password, Role role);
         void        loadDefaultsFromEnv();
         void        pruneExpired();
+
+      public:
+        bool isPasswordHashOpaque(const std::string& username, const std::string& plain) const;
     };
 
     inline std::string roleToString(Role role)

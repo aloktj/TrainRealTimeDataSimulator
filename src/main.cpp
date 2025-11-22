@@ -14,6 +14,8 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cctype>
+#include <cstdlib>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -147,7 +149,16 @@ int main(int argc, char* argv[])
         return resp;
     };
 
-    auto extractToken = [](const HttpRequestPtr& req)
+    auto sanitizeBoundedText = [](std::string input, std::size_t maxLen)
+    {
+        input.erase(std::remove_if(input.begin(), input.end(), [](unsigned char c) { return std::iscntrl(c); }),
+                    input.end());
+        if (input.size() > maxLen)
+            input.resize(maxLen);
+        return input;
+    };
+
+    auto extractToken = [&](const HttpRequestPtr& req)
     {
         std::string token;
         auto        authHeader = req->getHeader("Authorization");
@@ -159,10 +170,63 @@ int main(int argc, char* argv[])
         }
         if (token.empty())
             token = req->getCookie("trdp_session");
-        return token;
+        return sanitizeBoundedText(token, 128);
     };
 
-    app().addListener("0.0.0.0", 8848);
+    auto roleAtLeast = [](auth::Role current, auth::Role required)
+    {
+        if (current == auth::Role::Admin)
+            return true;
+        if (current == auth::Role::Developer)
+            return required == auth::Role::Developer || required == auth::Role::Viewer;
+        return required == auth::Role::Viewer;
+    };
+
+    auto requireRole = [&](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>& cb, auth::Role required)
+        -> std::optional<auth::Session>
+    {
+        auto token   = extractToken(req);
+        auto session = authMgr.validate(token);
+        if (!session)
+        {
+            cb(jsonResponse({{"error", "unauthorized"}}, k401Unauthorized));
+            return std::nullopt;
+        }
+        if (!roleAtLeast(session->role, required))
+        {
+            cb(jsonResponse({{"error", "forbidden"}}, k403Forbidden));
+            return std::nullopt;
+        }
+        return session;
+    };
+
+    auto sanitizePath = [](const std::string& raw) -> std::optional<std::filesystem::path>
+    {
+        try
+        {
+            auto normalized = std::filesystem::weakly_canonical(std::filesystem::absolute(raw));
+            auto cwd        = std::filesystem::current_path();
+            if (normalized.string().rfind(cwd.string(), 0) != 0)
+                return std::nullopt;
+            return normalized;
+        }
+        catch (const std::exception&)
+        {
+            return std::nullopt;
+        }
+    };
+
+    auto getEnvOrDefault = [](const std::string& key, const std::string& def) {
+        const char* val = std::getenv(key.c_str());
+        if (val && *val)
+            return std::string(val);
+        return def;
+    };
+
+    const std::string bindHost = getEnvOrDefault("TRDP_HTTP_HOST", "127.0.0.1");
+    const uint16_t    bindPort = static_cast<uint16_t>(std::stoi(getEnvOrDefault("TRDP_HTTP_PORT", "8848")));
+
+    app().addListener(bindHost, bindPort);
     app().setThreadNum(std::max(2u, std::thread::hardware_concurrency()));
 
     // Auth login
@@ -176,7 +240,14 @@ int main(int argc, char* argv[])
                 cb(jsonResponse({{"error", "username/password required"}}, k400BadRequest));
                 return;
             }
-            auto session = authMgr.login((*json)["username"].asString(), (*json)["password"].asString());
+            const auto username = (*json)["username"].asString();
+            const auto password = (*json)["password"].asString();
+            if (username.size() > 64 || password.size() > 256)
+            {
+                cb(jsonResponse({{"error", "credentials too long"}}, k400BadRequest));
+                return;
+            }
+            auto session = authMgr.login(username, password);
             if (!session)
             {
                 cb(jsonResponse({{"error", "invalid credentials"}}, k401Unauthorized));
@@ -207,15 +278,11 @@ int main(int argc, char* argv[])
         "/api/auth/session",
         [&authMgr, extractToken, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
         {
-            auto token   = extractToken(req);
-            auto session = authMgr.validate(token);
+            auto session = requireRole(req, cb, auth::Role::Viewer);
             if (!session)
-            {
-                cb(jsonResponse({{"error", "unauthorized"}}, k401Unauthorized));
                 return;
-            }
-            cb(jsonResponse({{"username", session->username}, {"role", auth::roleToString(session->role)},
-                             {"theme", session->theme}},
+            cb(jsonResponse({{"username", session->get().username}, {"role", auth::roleToString(session->get().role)},
+                             {"theme", session->get().theme}},
                             k200OK));
         },
         {Get});
@@ -225,20 +292,16 @@ int main(int argc, char* argv[])
         "/api/ui/theme",
         [&authMgr, extractToken, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
         {
-            auto token   = extractToken(req);
-            auto session = authMgr.validate(token);
+            auto session = requireRole(req, cb, auth::Role::Viewer);
             if (!session)
-            {
-                cb(jsonResponse({{"error", "unauthorized"}}, k401Unauthorized));
                 return;
-            }
             auto json = req->getJsonObject();
             if (!json || !json->isMember("theme"))
             {
                 cb(jsonResponse({{"error", "theme required"}}, k400BadRequest));
                 return;
             }
-            authMgr.updateTheme(token, (*json)["theme"].asString());
+            authMgr.updateTheme(session->get().token, (*json)["theme"].asString());
             cb(jsonResponse({{"theme", (*json)["theme"].asString()}}, k200OK));
         },
         {Post});
@@ -246,8 +309,10 @@ int main(int argc, char* argv[])
     // Layout manifest for dashboards/panels
     app().registerHandler(
         "/api/ui/layout",
-        [&jsonResponse](const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& cb)
+        [&requireRole, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
         {
+            if (!requireRole(req, cb, auth::Role::Viewer))
+                return;
             nlohmann::json layout{{"panels", nlohmann::json::array()}};
             layout["panels"].push_back({{"id", "pd"}, {"title", "PD Dashboard"}, {"features", {"live"}}});
             layout["panels"].push_back({{"id", "md"}, {"title", "MD Dashboard"}, {"features", {"sessions"}}});
@@ -264,8 +329,10 @@ int main(int argc, char* argv[])
     // UI overview snapshot
     app().registerHandler(
         "/api/ui/overview",
-        [&api, &diagMgr, jsonResponse](const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& cb)
+        [&api, &diagMgr, &requireRole, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
         {
+            if (!requireRole(req, cb, auth::Role::Viewer))
+                return;
             nlohmann::json snap;
             snap["pd"]      = api.getPdStatus();
             snap["metrics"] = api.getDiagnosticsMetrics();
@@ -277,14 +344,23 @@ int main(int argc, char* argv[])
 
     // PD status
     app().registerHandler("/api/pd/status",
-                          [&api, jsonResponse](const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& cb)
-                          { cb(jsonResponse(api.getPdStatus())); }, {Get});
+                          [&api, &requireRole, jsonResponse](const HttpRequestPtr& req,
+                                                             std::function<void(const HttpResponsePtr&)>&& cb)
+                          {
+                              if (!requireRole(req, cb, auth::Role::Viewer))
+                                  return;
+                              cb(jsonResponse(api.getPdStatus()));
+                          },
+                          {Get});
 
     // PD enable/disable
     app().registerHandler("/api/pd/{1}/enable",
-                          [&api, jsonResponse](const HttpRequestPtr&                         req,
-                                               std::function<void(const HttpResponsePtr&)>&& cb, uint32_t comId)
+                          [&api, &requireRole, jsonResponse](const HttpRequestPtr& req,
+                                                            std::function<void(const HttpResponsePtr&)>&& cb,
+                                                            uint32_t comId)
                           {
+                              if (!requireRole(req, cb, auth::Role::Developer))
+                                  return;
                               auto json = req->getJsonObject();
                               if (!json || !json->isMember("enabled"))
                               {
@@ -298,17 +374,24 @@ int main(int argc, char* argv[])
 
     // Dataset read
     app().registerHandler("/api/datasets/{1}",
-                          [&api, jsonResponse](const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& cb,
-                                               uint32_t dataSetId)
-                          { cb(jsonResponse(api.getDataSetValues(dataSetId))); },
+                          [&api, &requireRole, jsonResponse](const HttpRequestPtr& req,
+                                                             std::function<void(const HttpResponsePtr&)>&& cb,
+                                                             uint32_t dataSetId)
+                          {
+                              if (!requireRole(req, cb, auth::Role::Viewer))
+                                  return;
+                              cb(jsonResponse(api.getDataSetValues(dataSetId)));
+                          },
                           {Get});
 
     // Dataset write/clear
     app().registerHandler("/api/datasets/{1}/elements/{2}",
-                          [&api, jsonResponse](const HttpRequestPtr&                         req,
-                                               std::function<void(const HttpResponsePtr&)>&& cb, uint32_t dataSetId,
-                                               std::size_t elementIdx)
+                          [&api, &requireRole, jsonResponse](const HttpRequestPtr& req,
+                                                             std::function<void(const HttpResponsePtr&)>&& cb,
+                                                             uint32_t dataSetId, std::size_t elementIdx)
                           {
+                              if (!requireRole(req, cb, auth::Role::Developer))
+                                  return;
                               auto json = req->getJsonObject();
                               if (!json)
                               {
@@ -316,6 +399,7 @@ int main(int argc, char* argv[])
                                   return;
                               }
                               std::string error;
+                              auto        expectedSize = api.getExpectedElementSize(dataSetId, elementIdx);
                               if (json->get("clear", false).asBool())
                               {
                                   if (!api.clearDataSetValue(dataSetId, elementIdx, &error))
@@ -326,7 +410,19 @@ int main(int argc, char* argv[])
                               }
                               else if (json->isMember("raw") && (*json)["raw"].isArray())
                               {
+                                  const auto rawArraySize = (*json)["raw"].size();
+                                  if (rawArraySize > 65536)
+                                  {
+                                      cb(jsonResponse({{"error", "raw payload too large"}}, k400BadRequest));
+                                      return;
+                                  }
+                                  if (expectedSize && rawArraySize != *expectedSize)
+                                  {
+                                      cb(jsonResponse({{"error", "raw payload length mismatch"}}, k400BadRequest));
+                                      return;
+                                  }
                                   std::vector<uint8_t> raw;
+                                  raw.reserve(rawArraySize);
                                   for (const auto& v : (*json)["raw"])
                                   {
                                       if (!v.isUInt() || v.asUInt() > 255)
@@ -352,9 +448,12 @@ int main(int argc, char* argv[])
                           {Post});
 
     app().registerHandler("/api/datasets/{1}/lock",
-                          [&api, jsonResponse](const HttpRequestPtr&                         req,
-                                               std::function<void(const HttpResponsePtr&)>&& cb, uint32_t dataSetId)
+                          [&api, &requireRole, jsonResponse](const HttpRequestPtr& req,
+                                                             std::function<void(const HttpResponsePtr&)>&& cb,
+                                                             uint32_t dataSetId)
                           {
+                              if (!requireRole(req, cb, auth::Role::Developer))
+                                  return;
                               auto json = req->getJsonObject();
                               if (!json || !json->isMember("locked"))
                               {
@@ -373,9 +472,11 @@ int main(int argc, char* argv[])
 
     app().registerHandler(
         "/api/datasets/{1}/clear_all",
-        [&api, jsonResponse](const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& cb,
-                             uint32_t dataSetId)
+        [&api, &requireRole, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb,
+                                           uint32_t dataSetId)
         {
+            if (!requireRole(req, cb, auth::Role::Developer))
+                return;
             std::string error;
             if (!api.clearAllDataSetValues(dataSetId, &error))
             {
@@ -388,26 +489,47 @@ int main(int argc, char* argv[])
 
     // Config summary & reload
     app().registerHandler("/api/config",
-                          [&api, jsonResponse](const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& cb)
-                          { cb(jsonResponse(api.getConfigSummary())); }, {Get});
+                          [&api, &requireRole, jsonResponse](const HttpRequestPtr& req,
+                                                             std::function<void(const HttpResponsePtr&)>&& cb)
+                          {
+                              if (!requireRole(req, cb, auth::Role::Viewer))
+                                  return;
+                              cb(jsonResponse(api.getConfigSummary()));
+                          },
+                          {Get});
 
     app().registerHandler("/api/config/detail",
-                          [&api, jsonResponse](const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& cb)
-                          { cb(jsonResponse(api.getConfigDetail())); }, {Get});
+                          [&api, &requireRole, jsonResponse](const HttpRequestPtr& req,
+                                                             std::function<void(const HttpResponsePtr&)>&& cb)
+                          {
+                              if (!requireRole(req, cb, auth::Role::Viewer))
+                                  return;
+                              cb(jsonResponse(api.getConfigDetail()));
+                          },
+                          {Get});
 
     app().registerHandler(
         "/api/config/reload",
-        [&api, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        [&api, &requireRole, &sanitizePath, jsonResponse](const HttpRequestPtr& req,
+                                                          std::function<void(const HttpResponsePtr&)>&& cb)
         {
+            if (!requireRole(req, cb, auth::Role::Admin))
+                return;
             auto json = req->getJsonObject();
             if (!json || !json->isMember("path"))
             {
                 cb(jsonResponse({{"error", "missing 'path'"}}, k400BadRequest));
                 return;
             }
+            auto sanitized = sanitizePath((*json)["path"].asString());
+            if (!sanitized)
+            {
+                cb(jsonResponse({{"error", "invalid path"}}, k400BadRequest));
+                return;
+            }
             try
             {
-                api.reloadConfiguration((*json)["path"].asString());
+                api.reloadConfiguration(sanitized->string());
                 cb(jsonResponse(api.getConfigSummary()));
             }
             catch (const config::ConfigError& ex)
@@ -423,17 +545,21 @@ int main(int argc, char* argv[])
 
     app().registerHandler(
         "/api/config/backup",
-        [&api, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        [&api, &requireRole, &sanitizePath, jsonResponse](const HttpRequestPtr& req,
+                                                          std::function<void(const HttpResponsePtr&)>&& cb)
         {
+            if (!requireRole(req, cb, auth::Role::Admin))
+                return;
             auto path = req->getParameter("path");
             if (!path.empty())
             {
-                if (!api.backupConfiguration(path))
+                auto sanitized = sanitizePath(path);
+                if (!sanitized || !api.backupConfiguration(*sanitized))
                 {
                     cb(jsonResponse({{"error", "backup failed"}}, k500InternalServerError));
                     return;
                 }
-                cb(jsonResponse({{"backup", path}}));
+                cb(jsonResponse({{"backup", sanitized->string()}}));
                 return;
             }
 
@@ -451,15 +577,19 @@ int main(int argc, char* argv[])
 
     app().registerHandler(
         "/api/config/restore",
-        [&api, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        [&api, &requireRole, &sanitizePath, jsonResponse](const HttpRequestPtr& req,
+                                                          std::function<void(const HttpResponsePtr&)>&& cb)
         {
+            if (!requireRole(req, cb, auth::Role::Admin))
+                return;
             auto json = req->getJsonObject();
             if (!json || !json->isMember("path"))
             {
                 cb(jsonResponse({{"error", "missing 'path'"}}, k400BadRequest));
                 return;
             }
-            if (!api.restoreConfiguration((*json)["path"].asString()))
+            auto path = sanitizePath((*json)["path"].asString());
+            if (!path || !api.restoreConfiguration(*path))
             {
                 cb(jsonResponse({{"error", "restore failed"}}, k400BadRequest));
                 return;
@@ -469,13 +599,21 @@ int main(int argc, char* argv[])
         {Post});
 
     app().registerHandler("/api/network/multicast",
-                          [&api, jsonResponse](const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& cb)
-                          { cb(jsonResponse(api.getMulticastStatus())); }, {Get});
+                          [&api, &requireRole, jsonResponse](const HttpRequestPtr& req,
+                                                             std::function<void(const HttpResponsePtr&)>&& cb)
+                          {
+                              if (!requireRole(req, cb, auth::Role::Viewer))
+                                  return;
+                              cb(jsonResponse(api.getMulticastStatus()));
+                          },
+                          {Get});
 
     app().registerHandler(
         "/api/network/multicast/join",
-        [&api, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        [&api, &requireRole, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
         {
+            if (!requireRole(req, cb, auth::Role::Developer))
+                return;
             auto json = req->getJsonObject();
             if (!json || !json->isMember("interface") || !json->isMember("group"))
             {
@@ -496,8 +634,10 @@ int main(int argc, char* argv[])
 
     app().registerHandler(
         "/api/network/multicast/leave",
-        [&api, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        [&api, &requireRole, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
         {
+            if (!requireRole(req, cb, auth::Role::Developer))
+                return;
             auto json = req->getJsonObject();
             if (!json || !json->isMember("interface") || !json->isMember("group"))
             {
@@ -692,8 +832,10 @@ int main(int argc, char* argv[])
     // Diagnostics
     app().registerHandler(
         "/api/diag/events",
-        [&api, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        [&api, &requireRole, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
         {
+            if (!requireRole(req, cb, auth::Role::Viewer))
+                return;
             auto        maxStr    = req->getParameter("max");
             std::size_t maxEvents = maxStr.empty() ? 50u : static_cast<std::size_t>(std::stoul(maxStr));
             cb(jsonResponse(api.getRecentEvents(maxEvents)));
@@ -702,8 +844,10 @@ int main(int argc, char* argv[])
 
     app().registerHandler(
         "/api/diag/log/export",
-        [&api](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        [&api, &requireRole](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
         {
+            if (!requireRole(req, cb, auth::Role::Viewer))
+                return;
             auto        maxStr    = req->getParameter("max");
             std::size_t maxEvents = maxStr.empty() ? 200u : static_cast<std::size_t>(std::stoul(maxStr));
             auto        format    = req->getParameter("format");
@@ -727,8 +871,10 @@ int main(int argc, char* argv[])
 
     app().registerHandler(
         "/api/diag/pcap/export",
-        [&api, jsonResponse](const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& cb)
+        [&api, &requireRole, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
         {
+            if (!requireRole(req, cb, auth::Role::Viewer))
+                return;
             auto path = api.getPcapCapturePath();
             if (!path || !std::filesystem::exists(*path))
             {
@@ -743,8 +889,10 @@ int main(int argc, char* argv[])
 
     app().registerHandler(
         "/api/diag/log/file",
-        [&api, jsonResponse](const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& cb)
+        [&api, &requireRole, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
         {
+            if (!requireRole(req, cb, auth::Role::Viewer))
+                return;
             auto path = api.getLogFilePath();
             if (!path || !std::filesystem::exists(*path))
             {
@@ -758,21 +906,32 @@ int main(int argc, char* argv[])
         {Get});
 
     app().registerHandler("/api/diag/metrics",
-                          [&api, jsonResponse](const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& cb)
-                          { cb(jsonResponse(api.getDiagnosticsMetrics())); }, {Get});
+                          [&api, &requireRole, jsonResponse](const HttpRequestPtr& req,
+                                                             std::function<void(const HttpResponsePtr&)>&& cb)
+                          {
+                              if (!requireRole(req, cb, auth::Role::Viewer))
+                                  return;
+                              cb(jsonResponse(api.getDiagnosticsMetrics()));
+                          },
+                          {Get});
 
     app().registerHandler(
         "/api/diag/event",
-        [&api, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        [&api, &requireRole, &sanitizeBoundedText, jsonResponse](const HttpRequestPtr& req,
+                                                                 std::function<void(const HttpResponsePtr&)>&& cb)
         {
+            if (!requireRole(req, cb, auth::Role::Developer))
+                return;
             auto json = req->getJsonObject();
             if (!json || !json->isMember("component") || !json->isMember("message"))
             {
                 cb(jsonResponse({{"error", "component and message required"}}, k400BadRequest));
                 return;
             }
-            auto severityStr = json->get("severity", "INFO").asString();
-            api.triggerDiagnosticEvent(severityStr, (*json)["component"].asString(), (*json)["message"].asString());
+            auto severityStr = sanitizeBoundedText(json->get("severity", "INFO").asString(), 32);
+            auto component   = sanitizeBoundedText((*json)["component"].asString(), 64);
+            auto message     = sanitizeBoundedText((*json)["message"].asString(), 512);
+            api.triggerDiagnosticEvent(severityStr, component, message);
             cb(jsonResponse({{"status", "queued"}}));
         },
         {Post});
