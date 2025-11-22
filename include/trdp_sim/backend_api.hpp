@@ -28,10 +28,11 @@ namespace api
         nlohmann::json getPdStatus() const;
         void           enablePdTelegram(uint32_t comId, bool enable);
         nlohmann::json getDataSetValues(uint32_t dataSetId) const;
-        void           setDataSetValue(uint32_t dataSetId, std::size_t elementIdx, const std::vector<uint8_t>& value);
-        void           clearDataSetValue(uint32_t dataSetId, std::size_t elementIdx);
-        void           clearAllDataSetValues(uint32_t dataSetId);
-        void           lockDataSet(uint32_t dataSetId, bool lock);
+        bool           setDataSetValue(uint32_t dataSetId, std::size_t elementIdx, const std::vector<uint8_t>& value,
+                                       std::string* error = nullptr);
+        bool clearDataSetValue(uint32_t dataSetId, std::size_t elementIdx, std::string* error = nullptr);
+        bool clearAllDataSetValues(uint32_t dataSetId, std::string* error = nullptr);
+        bool lockDataSet(uint32_t dataSetId, bool lock, std::string* error = nullptr);
 
         // MD related:
         uint32_t       createMdRequest(uint32_t comId);

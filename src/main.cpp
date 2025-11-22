@@ -179,18 +179,32 @@ int main(int argc, char* argv[])
                                   cb(jsonResponse({{"error", "invalid JSON"}}, k400BadRequest));
                                   return;
                               }
+                              std::string error;
                               if (json->get("clear", false).asBool())
                               {
-                                  api.clearDataSetValue(dataSetId, elementIdx);
+                                  if (!api.clearDataSetValue(dataSetId, elementIdx, &error))
+                                  {
+                                      cb(jsonResponse({{"error", error}}, k400BadRequest));
+                                      return;
+                                  }
                               }
                               else if (json->isMember("raw") && (*json)["raw"].isArray())
                               {
                                   std::vector<uint8_t> raw;
                                   for (const auto& v : (*json)["raw"])
                                   {
+                                      if (!v.isUInt() || v.asUInt() > 255)
+                                      {
+                                          cb(jsonResponse({{"error", "raw values must be uint8"}}, k400BadRequest));
+                                          return;
+                                      }
                                       raw.push_back(static_cast<uint8_t>(v.asUInt()));
                                   }
-                                  api.setDataSetValue(dataSetId, elementIdx, raw);
+                                  if (!api.setDataSetValue(dataSetId, elementIdx, raw, &error))
+                                  {
+                                      cb(jsonResponse({{"error", error}}, k400BadRequest));
+                                      return;
+                                  }
                               }
                               else
                               {
@@ -211,10 +225,30 @@ int main(int argc, char* argv[])
                                   cb(jsonResponse({{"error", "missing 'locked' flag"}}, k400BadRequest));
                                   return;
                               }
-                              api.lockDataSet(dataSetId, (*json)["locked"].asBool());
+                              std::string error;
+                              if (!api.lockDataSet(dataSetId, (*json)["locked"].asBool(), &error))
+                              {
+                                  cb(jsonResponse({{"error", error}}, k400BadRequest));
+                                  return;
+                              }
                               cb(jsonResponse(api.getDataSetValues(dataSetId)));
                           },
                           {Post});
+
+    app().registerHandler(
+        "/api/datasets/{1}/clear_all",
+        [&api, jsonResponse](const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& cb,
+                             uint32_t dataSetId)
+        {
+            std::string error;
+            if (!api.clearAllDataSetValues(dataSetId, &error))
+            {
+                cb(jsonResponse({{"error", error}}, k400BadRequest));
+                return;
+            }
+            cb(jsonResponse(api.getDataSetValues(dataSetId)));
+        },
+        {Post});
 
     // Config summary & reload
     app().registerHandler("/api/config",
