@@ -103,7 +103,17 @@ nlohmann::json BackendApi::getMdSessionStatus(uint32_t sessionId) const
 
     auto* sess = *opt;
     std::lock_guard<std::mutex> lock(sess->mtx);
-    // TODO: fill JSON with state, retryCount, timestamps, etc.
+    j["sessionId"] = sess->sessionId;
+    j["comId"] = sess->comId;
+    j["role"] = sess->role == engine::md::MdRole::REQUESTER ? "REQUESTER" : "RESPONDER";
+    j["state"] = engine::md::MdEngine::stateToString(sess->state);
+    j["retryCount"] = sess->retryCount;
+    j["stats"]["txCount"] = sess->stats.txCount;
+    j["stats"]["rxCount"] = sess->stats.rxCount;
+    j["stats"]["retryCount"] = sess->stats.retryCount;
+    j["stats"]["timeoutCount"] = sess->stats.timeoutCount;
+    j["stats"]["lastTxTime"] = sess->stats.lastTxTime.time_since_epoch().count();
+    j["stats"]["lastRxTime"] = sess->stats.lastRxTime.time_since_epoch().count();
     return j;
 }
 

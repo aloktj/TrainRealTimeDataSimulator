@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <mutex>
 #include <optional>
 #include <thread>
@@ -27,21 +28,36 @@ enum class MdSessionState {
     REQUEST_SENT,
     WAITING_REPLY,
     REPLY_RECEIVED,
+    WAITING_ACK,
     TIMEOUT,
     ERROR
 };
 
+struct MdRuntimeStats {
+    uint64_t txCount {0};
+    uint64_t rxCount {0};
+    uint64_t retryCount {0};
+    uint64_t timeoutCount {0};
+    std::chrono::steady_clock::time_point lastTxTime {};
+    std::chrono::steady_clock::time_point lastRxTime {};
+};
+
 struct MdSessionRuntime {
     uint32_t sessionId {0};
+    uint32_t comId {0};
     MdRole role {MdRole::REQUESTER};
     MdProtocol proto {MdProtocol::UDP};
     const config::TelegramConfig* telegram {nullptr};
+    const config::BusInterfaceConfig* iface {nullptr};
+    const config::MdComParameter* mdCom {nullptr};
     data::DataSetInstance* requestData {nullptr};
     data::DataSetInstance* responseData {nullptr};
     MdSessionState state {MdSessionState::IDLE};
     uint32_t retryCount {0};
     TRDP_LR_T mdHandle {0};
     std::chrono::steady_clock::time_point lastStateChange {};
+    std::chrono::steady_clock::time_point deadline {};
+    MdRuntimeStats stats {};
     std::mutex mtx;
 };
 
@@ -66,8 +82,15 @@ public:
     void onMdIndication(uint32_t sessionId, const uint8_t* data, std::size_t len);
 
     std::optional<MdSessionRuntime*> getSession(uint32_t sessionId);
+    static const char* stateToString(MdSessionState state);
 
 private:
+    void buildSessionsFromConfig();
+    void runLoop();
+    void handleTimeouts();
+    void dispatchRequestLocked(MdSessionRuntime& session);
+    void dispatchReplyLocked(MdSessionRuntime& session);
+
     trdp_sim::EngineContext& m_ctx;
     trdp_sim::trdp::TrdpAdapter& m_adapter;
 
