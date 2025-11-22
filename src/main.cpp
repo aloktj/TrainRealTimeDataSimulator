@@ -718,6 +718,7 @@ int main(int argc, char* argv[])
             trdp_sim::SimulationControls::StressMode mode{};
             mode.enabled          = json->get("enabled", false).asBool();
             mode.pdCycleOverrideUs = json->get("pdCycleUs", 0).asUInt();
+            mode.pdBurstTelegrams = json->get("pdBurst", 0).asUInt();
             mode.mdBurst          = json->get("mdBurst", 0).asUInt();
             mode.mdIntervalUs     = json->get("mdIntervalUs", 0).asUInt();
             api.setStressMode(mode);
@@ -759,6 +760,35 @@ int main(int argc, char* argv[])
             offsets.ptpOffsetUs = json->get("ptpOffsetUs", 0).asInt64();
             api.setTimeSyncOffsets(offsets);
             cb(jsonResponse(api.getSimulationState()));
+        },
+        {Post});
+
+    app().registerHandler("/api/time/sync",
+                          [&api, &requireRole, jsonResponse](const HttpRequestPtr& req,
+                                                           std::function<void(const HttpResponsePtr&)>&& cb)
+                          {
+                              if (!requireRole(req, cb, auth::Role::Viewer))
+                                  return;
+                              cb(jsonResponse(api.getTimeSyncState()));
+                          },
+                          {Get});
+
+    app().registerHandler(
+        "/api/time/convert",
+        [&api, &requireRole, jsonResponse](const HttpRequestPtr& req,
+                                           std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            if (!requireRole(req, cb, auth::Role::Viewer))
+                return;
+            auto json = req->getJsonObject();
+            if (!json || !json->isMember("seconds"))
+            {
+                cb(jsonResponse({{"error", "seconds required"}}, k400BadRequest));
+                return;
+            }
+            auto seconds     = (*json)["seconds"].asUInt64();
+            auto nanoseconds = json->get("nanoseconds", 0).asUInt();
+            cb(jsonResponse(api.convertTrdpTimestamp(seconds, nanoseconds)));
         },
         {Post});
 

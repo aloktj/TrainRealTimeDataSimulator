@@ -68,8 +68,12 @@ namespace trdp_sim
         {
             bool     enabled{false};
             uint32_t pdCycleOverrideUs{0};
+            uint32_t pdBurstTelegrams{0};
             uint32_t mdBurst{0};
             uint32_t mdIntervalUs{0};
+
+            static constexpr std::size_t kMaxBurstTelegrams = 1000;
+            static constexpr uint32_t    kMinCycleUs       = 1000;
         };
 
         struct RedundancySimulation

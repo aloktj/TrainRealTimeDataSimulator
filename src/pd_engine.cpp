@@ -91,6 +91,7 @@ namespace engine::pd
                 rt->direction           = tel.destinations.empty() ? Direction::SUBSCRIBE : Direction::PUBLISH;
                 rt->enabled             = true;
                 rt->activeChannel       = 0;
+                rt->redundantActive     = tel.pdParam && tel.pdParam->redundant > 0;
                 if (!tel.destinations.empty())
                 {
                     for (const auto& dest : tel.destinations)
@@ -282,6 +283,17 @@ namespace engine::pd
         using trdp_sim::util::marshalDataSet;
         while (m_running.load())
         {
+            trdp_sim::SimulationControls::StressMode stressSnapshot{};
+            {
+                std::lock_guard<std::mutex> lk(m_ctx.simulation.mtx);
+                stressSnapshot = m_ctx.simulation.stress;
+            }
+            const bool     stressActive = stressSnapshot.enabled;
+            std::size_t    pdBudget     = stressActive
+                                          ? std::min<std::size_t>(stressSnapshot.pdBurstTelegrams,
+                                                                  trdp_sim::SimulationControls::StressMode::kMaxBurstTelegrams)
+                                          : 0;
+            const auto minCycle = microseconds(trdp_sim::SimulationControls::StressMode::kMinCycleUs);
             auto now = steady_clock::now();
             for (auto& pdPtr : m_ctx.pdTelegrams)
             {
@@ -291,16 +303,26 @@ namespace engine::pd
                     continue;
 
                 auto cycle = microseconds(pd.cfg->pdParam->cycleUs);
+                if (stressActive && stressSnapshot.pdCycleOverrideUs > 0)
                 {
-                    std::lock_guard<std::mutex> lk(m_ctx.simulation.mtx);
-                    if (m_ctx.simulation.stress.enabled && m_ctx.simulation.stress.pdCycleOverrideUs > 0)
-                    {
-                        auto overrideCycle = microseconds(m_ctx.simulation.stress.pdCycleOverrideUs);
-                        if (overrideCycle < cycle)
-                            cycle = overrideCycle;
-                    }
+                    auto overrideCycle = microseconds(
+                        std::max(stressSnapshot.pdCycleOverrideUs,
+                                 static_cast<uint32_t>(trdp_sim::SimulationControls::StressMode::kMinCycleUs)));
+                    if (overrideCycle < cycle || pd.cfg->pdParam->cycleUs == 0)
+                        cycle = overrideCycle;
                 }
-                if (pd.sendNow || pd.stats.lastTxTime.time_since_epoch().count() == 0 || now - pd.stats.lastTxTime >= cycle)
+                if (cycle < minCycle)
+                    cycle = minCycle;
+                if (pd.stats.lastTxTime.time_since_epoch().count() == 0)
+                    pd.stats.lastTxTime = now - cycle;
+                bool due = pd.sendNow || now - pd.stats.lastTxTime >= cycle;
+                if (!due && stressActive && pdBudget > 0)
+                {
+                    due = true;
+                    --pdBudget;
+                    pd.stats.stressBursts++;
+                }
+                if (due)
                 {
                     auto* ds = pd.dataset;
                     if (!ds)

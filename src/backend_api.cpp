@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cstdio>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -122,6 +124,19 @@ namespace api
             j["delayMs"]        = rule.delayMs;
             j["lossRate"]       = rule.lossRate;
             return j;
+        }
+
+        std::string toIso8601(const std::chrono::system_clock::time_point& tp)
+        {
+            auto    tt   = std::chrono::system_clock::to_time_t(tp);
+            auto    tm   = *std::gmtime(&tt);
+            auto    us   = std::chrono::duration_cast<std::chrono::microseconds>(tp.time_since_epoch()) -
+                         std::chrono::duration_cast<std::chrono::seconds>(tp.time_since_epoch());
+            char    buf[64];
+            int     len = std::snprintf(buf, sizeof(buf), "%04d-%02d-%02dT%02d:%02d:%02d.%06ldZ", tm.tm_year + 1900,
+                                     tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec,
+                                     static_cast<long>(us.count()));
+            return std::string(buf, static_cast<size_t>(std::max(len, 0)));
         }
     } // namespace
 
@@ -743,6 +758,9 @@ namespace api
         j["pd"]["rxCount"]          = m.pd.rxCount;
         j["pd"]["timeoutCount"]     = m.pd.timeoutCount;
         j["pd"]["maxCycleJitterUs"] = m.pd.maxCycleJitterUs;
+        j["pd"]["stressBursts"]     = m.pd.stressBursts;
+        j["pd"]["redundancySwitches"] = m.pd.redundancySwitches;
+        j["pd"]["busFailureDrops"]    = m.pd.busFailureDrops;
 
         j["md"]["sessions"]     = m.md.sessions;
         j["md"]["txCount"]      = m.md.txCount;
@@ -764,6 +782,7 @@ namespace api
             std::lock_guard<std::mutex> lk(m_ctx.simulation.mtx);
             j["simulation"]["stress"]["enabled"]          = m_ctx.simulation.stress.enabled;
             j["simulation"]["stress"]["pdCycleOverrideUs"] = m_ctx.simulation.stress.pdCycleOverrideUs;
+            j["simulation"]["stress"]["pdBurstTelegrams"] = m_ctx.simulation.stress.pdBurstTelegrams;
             j["simulation"]["stress"]["mdBurst"]          = m_ctx.simulation.stress.mdBurst;
             j["simulation"]["stress"]["mdIntervalUs"]     = m_ctx.simulation.stress.mdIntervalUs;
             j["simulation"]["redundancy"]["forceSwitch"]  = m_ctx.simulation.redundancy.forceSwitch;
@@ -894,6 +913,7 @@ namespace api
             j["dataSetRules"].push_back({{"dataSetId", dsId}, {"rule", ruleToJson(rule)}});
         j["stress"]["enabled"]          = m_ctx.simulation.stress.enabled;
         j["stress"]["pdCycleOverrideUs"] = m_ctx.simulation.stress.pdCycleOverrideUs;
+        j["stress"]["pdBurstTelegrams"] = m_ctx.simulation.stress.pdBurstTelegrams;
         j["stress"]["mdBurst"]          = m_ctx.simulation.stress.mdBurst;
         j["stress"]["mdIntervalUs"]     = m_ctx.simulation.stress.mdIntervalUs;
         j["redundancy"]["forceSwitch"]  = m_ctx.simulation.redundancy.forceSwitch;
@@ -942,7 +962,18 @@ namespace api
     void BackendApi::setStressMode(const trdp_sim::SimulationControls::StressMode& stress)
     {
         std::lock_guard<std::mutex> lk(m_ctx.simulation.mtx);
-        m_ctx.simulation.stress = stress;
+        auto sanitized                   = stress;
+        sanitized.pdBurstTelegrams       =
+            std::min<std::size_t>(stress.pdBurstTelegrams,
+                                   trdp_sim::SimulationControls::StressMode::kMaxBurstTelegrams);
+        sanitized.mdBurst =
+            std::min<std::size_t>(stress.mdBurst, trdp_sim::SimulationControls::StressMode::kMaxBurstTelegrams);
+        if (sanitized.pdCycleOverrideUs > 0 &&
+            sanitized.pdCycleOverrideUs < trdp_sim::SimulationControls::StressMode::kMinCycleUs)
+            sanitized.pdCycleOverrideUs = trdp_sim::SimulationControls::StressMode::kMinCycleUs;
+        if (sanitized.mdIntervalUs > 0 && sanitized.mdIntervalUs < trdp_sim::SimulationControls::StressMode::kMinCycleUs)
+            sanitized.mdIntervalUs = trdp_sim::SimulationControls::StressMode::kMinCycleUs;
+        m_ctx.simulation.stress = sanitized;
     }
 
     void BackendApi::setRedundancySimulation(const trdp_sim::SimulationControls::RedundancySimulation& sim)
@@ -955,6 +986,39 @@ namespace api
     {
         std::lock_guard<std::mutex> lk(m_ctx.simulation.mtx);
         m_ctx.simulation.timeSync = offsets;
+    }
+
+    nlohmann::json BackendApi::getTimeSyncState() const
+    {
+        nlohmann::json j;
+        std::lock_guard<std::mutex> lk(m_ctx.simulation.mtx);
+        j["ntpOffsetUs"] = m_ctx.simulation.timeSync.ntpOffsetUs;
+        j["ptpOffsetUs"] = m_ctx.simulation.timeSync.ptpOffsetUs;
+        auto now          = std::chrono::system_clock::now();
+        j["now"]["unixMs"] =
+            std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+        j["now"]["iso"] = toIso8601(now);
+        return j;
+    }
+
+    nlohmann::json BackendApi::convertTrdpTimestamp(uint64_t secondsVal, uint32_t nanosecondsVal) const
+    {
+        using namespace std::chrono;
+        auto base = system_clock::time_point{} + seconds(secondsVal) + nanoseconds(nanosecondsVal);
+
+        nlohmann::json j;
+        j["inputSeconds"] = secondsVal;
+        j["inputNanoseconds"] = nanosecondsVal;
+        j["utcIso"]      = toIso8601(base);
+        j["unixMs"]      = duration_cast<milliseconds>(base.time_since_epoch()).count();
+        std::lock_guard<std::mutex> lk(m_ctx.simulation.mtx);
+        auto ntpAdjusted = base + microseconds(m_ctx.simulation.timeSync.ntpOffsetUs);
+        auto ptpAdjusted = base + microseconds(m_ctx.simulation.timeSync.ptpOffsetUs);
+        j["ntpAdjustedIso"] = toIso8601(ntpAdjusted);
+        j["ptpAdjustedIso"] = toIso8601(ptpAdjusted);
+        j["ntpAdjustedMs"]  = duration_cast<milliseconds>(ntpAdjusted.time_since_epoch()).count();
+        j["ptpAdjustedMs"]  = duration_cast<milliseconds>(ptpAdjusted.time_since_epoch()).count();
+        return j;
     }
 
     bool BackendApi::registerVirtualInstance(const std::string& name, const std::string& path, std::string* err)

@@ -338,10 +338,15 @@ namespace engine::md
                 std::lock_guard<std::mutex> lk(m_ctx.simulation.mtx);
                 stress = m_ctx.simulation.stress;
             }
+            const auto intervalMin =
+                std::chrono::microseconds(trdp_sim::SimulationControls::StressMode::kMinCycleUs);
             if (stress.enabled && stress.mdBurst > 0)
             {
                 static auto lastBurst = std::chrono::steady_clock::now();
-                auto        interval  = std::chrono::microseconds(stress.mdIntervalUs == 0 ? 1000 : stress.mdIntervalUs);
+                auto interval = std::chrono::microseconds(
+                    stress.mdIntervalUs == 0 ? trdp_sim::SimulationControls::StressMode::kMinCycleUs : stress.mdIntervalUs);
+                if (interval < intervalMin)
+                    interval = intervalMin;
                 auto        now       = std::chrono::steady_clock::now();
                 if (now - lastBurst >= interval)
                 {
@@ -356,6 +361,9 @@ namespace engine::md
                         }
                     }
                     std::size_t fired{0};
+                    auto        burstLimit =
+                        std::min<std::size_t>(stress.mdBurst,
+                                              trdp_sim::SimulationControls::StressMode::kMaxBurstTelegrams);
                     for (auto id : targets)
                     {
                         auto opt = getSession(id);
@@ -367,7 +375,7 @@ namespace engine::md
                             sess->state == MdSessionState::TIMEOUT || sess->state == MdSessionState::ERROR)
                         {
                             dispatchRequestLocked(*sess);
-                            if (++fired >= stress.mdBurst)
+                            if (++fired >= burstLimit)
                                 break;
                         }
                     }
