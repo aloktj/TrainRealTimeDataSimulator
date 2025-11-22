@@ -95,7 +95,7 @@ namespace trdp_sim::trdp
         }
     }
 
-    int TrdpAdapter::publishPd(const engine::pd::PdTelegramRuntime& pd)
+    int TrdpAdapter::publishPd(engine::pd::PdTelegramRuntime& pd)
     {
         if (!m_ctx.trdpSession || !pd.cfg || !pd.pdComCfg)
             return -1;
@@ -107,22 +107,32 @@ namespace trdp_sim::trdp
                 ? TRDP_TO_ZERO
                 : TRDP_TO_KEEP_LAST_VALUE;
 
-        TRDP_IP_ADDR_T srcIp  = toIp(pd.ifaceCfg->hostIp);
-        TRDP_IP_ADDR_T destIp = 0;
-        if (!pd.cfg->destinations.empty())
-            destIp = toIp(pd.cfg->destinations.front().uri);
+        TRDP_IP_ADDR_T srcIp = toIp(pd.ifaceCfg->hostIp);
 
-        TRDP_ERR_T err = tlp_publish(m_ctx.trdpSession, const_cast<TRDP_PUB_T*>(&pd.pubHandle), srcIp, destIp,
-                                     pd.cfg->comId, 0, 0, &pdCfg, nullptr, 0);
-
-        if (err != TRDP_NO_ERR)
+        if (pd.pubChannels.empty())
         {
-            recordError(static_cast<uint32_t>(err), &TrdpErrorCounters::publishErrors);
-            std::cerr << "tlp_publish failed for COM ID " << pd.cfg->comId << " error=" << err << std::endl;
-            if (m_ctx.diagManager)
-                m_ctx.diagManager->log(diag::Severity::ERROR, "PD", "Failed to publish",
-                                       buildPcapEventJson(pd.cfg->comId, 0, "tx"));
-            return -static_cast<int>(err);
+            engine::pd::PdTelegramRuntime::PublicationChannel ch{};
+            ch.destIp = (!pd.cfg->destinations.empty()) ? toIp(pd.cfg->destinations.front().uri) : 0;
+            pd.pubChannels.push_back(ch);
+        }
+
+        for (auto& ch : pd.pubChannels)
+        {
+            if (ch.handle)
+                continue;
+
+            TRDP_ERR_T err = tlp_publish(m_ctx.trdpSession, &ch.handle, srcIp, ch.destIp, pd.cfg->comId, 0, 0, &pdCfg,
+                                         nullptr, 0);
+
+            if (err != TRDP_NO_ERR)
+            {
+                recordError(static_cast<uint32_t>(err), &TrdpErrorCounters::publishErrors);
+                std::cerr << "tlp_publish failed for COM ID " << pd.cfg->comId << " error=" << err << std::endl;
+                if (m_ctx.diagManager)
+                    m_ctx.diagManager->log(diag::Severity::ERROR, "PD", "Failed to publish",
+                                           buildPcapEventJson(pd.cfg->comId, 0, "tx"));
+                return -static_cast<int>(err);
+            }
         }
         return 0;
     }
@@ -157,7 +167,7 @@ namespace trdp_sim::trdp
         return 0;
     }
 
-    int TrdpAdapter::sendPdData(const engine::pd::PdTelegramRuntime& pd, const std::vector<uint8_t>& payload)
+    int TrdpAdapter::sendPdData(engine::pd::PdTelegramRuntime& pd, const std::vector<uint8_t>& payload)
     {
         if (!m_ctx.trdpSession || !pd.cfg || !pd.pdComCfg)
             return -1;
@@ -167,25 +177,55 @@ namespace trdp_sim::trdp
             m_lastPdPayload = payload;
         }
 
-        if (!pd.pubHandle)
+        if (pd.pubChannels.empty())
         {
             int rc = publishPd(pd);
             if (rc != 0)
                 return rc;
         }
 
-        TRDP_ERR_T err =
-            tlp_put(m_ctx.trdpSession, pd.pubHandle, const_cast<UINT8*>(payload.empty() ? nullptr : payload.data()),
-                    static_cast<UINT32>(payload.size()));
+        const bool sendRedundant = pd.cfg->pdParam && pd.cfg->pdParam->redundant > 0;
+        size_t     idx           = pd.activeChannel % (pd.pubChannels.empty() ? 1 : pd.pubChannels.size());
 
-        if (err != TRDP_NO_ERR)
+        auto sendOnce = [&](engine::pd::PdTelegramRuntime::PublicationChannel& ch) -> int {
+            if (!ch.handle)
+            {
+                int rc = publishPd(pd);
+                if (rc != 0)
+                    return rc;
+            }
+
+            TRDP_ERR_T err = tlp_put(m_ctx.trdpSession, ch.handle,
+                                     const_cast<UINT8*>(payload.empty() ? nullptr : payload.data()),
+                                     static_cast<UINT32>(payload.size()));
+
+            if (err != TRDP_NO_ERR)
+            {
+                recordError(static_cast<uint32_t>(err), &TrdpErrorCounters::pdSendErrors);
+                std::cerr << "tlp_put failed for COM ID " << pd.cfg->comId << " error=" << err << std::endl;
+                if (m_ctx.diagManager)
+                    m_ctx.diagManager->log(diag::Severity::ERROR, "PD", "PD send failed",
+                                           buildPcapEventJson(pd.cfg->comId, payload.size(), "tx"));
+                return -static_cast<int>(err);
+            }
+            return 0;
+        };
+
+        if (sendRedundant)
         {
-            recordError(static_cast<uint32_t>(err), &TrdpErrorCounters::pdSendErrors);
-            std::cerr << "tlp_put failed for COM ID " << pd.cfg->comId << " error=" << err << std::endl;
-            if (m_ctx.diagManager)
-                m_ctx.diagManager->log(diag::Severity::ERROR, "PD", "PD send failed",
-                                       buildPcapEventJson(pd.cfg->comId, payload.size(), "tx"));
-            return -static_cast<int>(err);
+            for (auto& ch : pd.pubChannels)
+            {
+                int rc = sendOnce(ch);
+                if (rc != 0)
+                    return rc;
+            }
+        }
+        else
+        {
+            int rc = sendOnce(pd.pubChannels.at(idx));
+            if (rc != 0)
+                return rc;
+            pd.activeChannel = static_cast<uint32_t>((idx + 1) % pd.pubChannels.size());
         }
 
         if (m_ctx.diagManager)

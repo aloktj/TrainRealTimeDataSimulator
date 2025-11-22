@@ -405,6 +405,16 @@ namespace diag
             snapshot.pd.rxCount += pdPtr->stats.rxCount;
             snapshot.pd.timeoutCount += pdPtr->stats.timeoutCount;
             snapshot.pd.maxCycleJitterUs = std::max(snapshot.pd.maxCycleJitterUs, pdPtr->stats.lastCycleJitterUs);
+            snapshot.pd.maxInterarrivalUs =
+                std::max(snapshot.pd.maxInterarrivalUs, pdPtr->stats.lastInterarrivalUs);
+            if (pdPtr->stats.timedOut)
+                snapshot.pd.activeTimeouts++;
+            if (pdPtr->stats.lastRxWall.time_since_epoch().count() != 0 &&
+                pdPtr->stats.lastRxWall > snapshot.pd.latestRxWall)
+                snapshot.pd.latestRxWall = pdPtr->stats.lastRxWall;
+            if (pdPtr->stats.lastTxWall.time_since_epoch().count() != 0 &&
+                pdPtr->stats.lastTxWall > snapshot.pd.latestTxWall)
+                snapshot.pd.latestTxWall = pdPtr->stats.lastTxWall;
         }
 
         m_md.forEachSession(
@@ -443,7 +453,8 @@ namespace diag
         oss << "threads(pd=" << snapshot.threads.pdThreadRunning << ", md=" << snapshot.threads.mdThreadRunning
             << ", diag=" << snapshot.threads.diagThreadRunning << ", trdp=" << snapshot.threads.trdpThreadRunning
             << ") pd(tx=" << snapshot.pd.txCount << ", rx=" << snapshot.pd.rxCount
-            << ", timeout=" << snapshot.pd.timeoutCount << ", jitter(us)=" << snapshot.pd.maxCycleJitterUs
+            << ", timeout=" << snapshot.pd.timeoutCount << ", active_to=" << snapshot.pd.activeTimeouts
+            << ", jitter(us)=" << snapshot.pd.maxCycleJitterUs << ", inter(us)=" << snapshot.pd.maxInterarrivalUs
             << ") md(tx=" << snapshot.md.txCount << ", rx=" << snapshot.md.rxCount
             << ", timeout=" << snapshot.md.timeoutCount << ", retry=" << snapshot.md.retryCount
             << ", lat(us)=" << snapshot.md.maxLatencyUs << ") trdp(errors=" << snapshot.trdp.eventLoopErrors << ")";
