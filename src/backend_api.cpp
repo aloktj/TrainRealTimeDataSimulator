@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <filesystem>
 #include <iomanip>
 #include <mutex>
 #include <optional>
@@ -425,6 +426,7 @@ namespace api
     void BackendApi::reloadConfiguration(const std::string& xmlPath)
     {
         m_backend.reloadConfiguration(xmlPath);
+        m_ctx.configPath = xmlPath;
     }
 
     nlohmann::json BackendApi::getConfigSummary() const
@@ -661,6 +663,17 @@ namespace api
         return j;
     }
 
+    std::string BackendApi::exportRecentEventsText(std::size_t maxEvents) const
+    {
+        auto events = m_diag.fetchRecent(maxEvents);
+        std::ostringstream oss;
+        for (auto it = events.rbegin(); it != events.rend(); ++it)
+        {
+            oss << m_diag.formatEventLine(*it) << '\n';
+        }
+        return oss.str();
+    }
+
     nlohmann::json BackendApi::getDiagnosticsMetrics() const
     {
         auto           m = m_diag.getMetrics();
@@ -697,6 +710,23 @@ namespace api
         return j;
     }
 
+    std::optional<std::filesystem::path> BackendApi::getPcapCapturePath() const
+    {
+        return m_diag.pcapFilePath();
+    }
+
+    std::optional<std::filesystem::path> BackendApi::getLogFilePath() const
+    {
+        return m_diag.logFilePath();
+    }
+
+    std::optional<std::filesystem::path> BackendApi::getConfigPath() const
+    {
+        if (m_ctx.configPath.empty())
+            return std::nullopt;
+        return m_ctx.configPath;
+    }
+
     void BackendApi::triggerDiagnosticEvent(const std::string& severity, const std::string& component,
                                             const std::string& message, const std::optional<std::string>& extraJson)
     {
@@ -717,6 +747,46 @@ namespace api
     void BackendApi::enablePcap(bool enable)
     {
         m_diag.enablePcapCapture(enable);
+    }
+
+    bool BackendApi::backupConfiguration(const std::filesystem::path& destination) const
+    {
+        if (m_ctx.configPath.empty())
+            return false;
+        try
+        {
+            std::filesystem::create_directories(destination.parent_path());
+            std::filesystem::copy_file(m_ctx.configPath, destination,
+                                       std::filesystem::copy_options::overwrite_existing);
+            return true;
+        }
+        catch (...)
+        {
+            return false;
+        }
+    }
+
+    bool BackendApi::restoreConfiguration(const std::filesystem::path& source)
+    {
+        if (source.empty())
+            return false;
+        if (!std::filesystem::exists(source))
+            return false;
+        reloadConfiguration(source.string());
+        if (!m_ctx.configPath.empty() && m_ctx.configPath != source)
+        {
+            try
+            {
+                std::filesystem::create_directories(std::filesystem::path(m_ctx.configPath).parent_path());
+                std::filesystem::copy_file(source, m_ctx.configPath,
+                                           std::filesystem::copy_options::overwrite_existing);
+            }
+            catch (...)
+            {
+                // ignore copy failure, configuration already applied from source
+            }
+        }
+        return true;
     }
 
 } // namespace api

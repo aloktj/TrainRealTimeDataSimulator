@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <vector>
@@ -52,11 +53,17 @@ namespace api
 
         // Diagnostics:
         nlohmann::json getRecentEvents(std::size_t maxEvents) const;
+        std::string    exportRecentEventsText(std::size_t maxEvents) const;
         void           triggerDiagnosticEvent(const std::string& severity, const std::string& component,
                                               const std::string&                message,
                                               const std::optional<std::string>& extraJson = std::nullopt);
         void           enablePcap(bool enable);
         nlohmann::json getDiagnosticsMetrics() const;
+        std::optional<std::filesystem::path> getPcapCapturePath() const;
+        std::optional<std::filesystem::path> getLogFilePath() const;
+        std::optional<std::filesystem::path> getConfigPath() const;
+        bool                                backupConfiguration(const std::filesystem::path& destination) const;
+        bool                                restoreConfiguration(const std::filesystem::path& source);
 
       private:
         trdp_sim::EngineContext& m_ctx;
