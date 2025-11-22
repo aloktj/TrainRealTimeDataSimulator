@@ -16,6 +16,8 @@ namespace diag {
 
 namespace {
 
+constexpr std::size_t kPcapGlobalHeaderSize = sizeof(uint32_t) * 6;
+
 Severity severityFromChar(char c)
 {
     c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
@@ -35,12 +37,14 @@ DiagnosticManager::DiagnosticManager(trdp_sim::EngineContext& ctx,
                                      engine::pd::PdEngine& pd,
                                      engine::md::MdEngine& md,
                                      trdp_sim::trdp::TrdpAdapter& adapter,
-                                     const LogConfig& cfg)
+                                     const LogConfig& cfg,
+                                     const PcapConfig& pcapCfg)
     : m_ctx(ctx)
     , m_pd(pd)
     , m_md(md)
     , m_adapter(adapter)
     , m_logCfg(cfg)
+    , m_pcapCfg(pcapCfg)
 {
     if (ctx.deviceConfig.debug) {
         auto dbg = *ctx.deviceConfig.debug;
@@ -54,11 +58,20 @@ DiagnosticManager::DiagnosticManager(trdp_sim::EngineContext& ctx,
 
     if (m_logCfg.filePath)
         m_logPath = *m_logCfg.filePath;
+
+    if (m_pcapCfg.filePath)
+        m_pcapPath = *m_pcapCfg.filePath;
+
+    if (m_pcapCfg.enabled)
+        log(Severity::INFO, "PCAP", "Capture enabled via configuration");
 }
 
 DiagnosticManager::~DiagnosticManager()
 {
     stop();
+    std::lock_guard<std::mutex> lk(m_pcapMtx);
+    if (m_pcapFile.is_open())
+        m_pcapFile.close();
 }
 
 void DiagnosticManager::start()
@@ -125,15 +138,160 @@ void DiagnosticManager::updateLogConfig(const LogConfig& cfg)
 
 void DiagnosticManager::enablePcapCapture(bool enable)
 {
-    m_pcapEnabled = enable;
+    std::lock_guard<std::mutex> lk(m_pcapMtx);
+    m_pcapCfg.enabled = enable;
+    if (!enable && m_pcapFile.is_open())
+        m_pcapFile.close();
+
+    log(enable ? Severity::INFO : Severity::WARN, "PCAP", enable ? "Capture enabled" : "Capture disabled");
+}
+
+void DiagnosticManager::updatePcapConfig(const PcapConfig& cfg)
+{
+    std::lock_guard<std::mutex> lk(m_pcapMtx);
+    m_pcapCfg = cfg;
+    if (m_pcapCfg.filePath)
+        m_pcapPath = *m_pcapCfg.filePath;
+    if (!m_pcapCfg.enabled && m_pcapFile.is_open())
+        m_pcapFile.close();
+    log(Severity::INFO, "PCAP", "Capture configuration refreshed");
 }
 
 void DiagnosticManager::writePacketToPcap(const uint8_t* data, std::size_t len, bool isTx)
 {
-    (void)data;
-    (void)len;
-    (void)isTx;
-    // TODO: implement PCAP writing
+    if (!data || len == 0)
+        return;
+
+    std::lock_guard<std::mutex> lk(m_pcapMtx);
+
+    if (!m_pcapCfg.enabled)
+        return;
+    if ((isTx && !m_pcapCfg.captureTx) || (!isTx && !m_pcapCfg.captureRx))
+        return;
+
+    const auto recordSize = sizeof(uint32_t) * 4 + len;
+    if (!ensurePcapFileUnlocked(recordSize))
+        return;
+
+    auto now = std::chrono::system_clock::now();
+    auto secs = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch());
+    auto usecs = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()) -
+                 std::chrono::duration_cast<std::chrono::microseconds>(secs);
+
+    uint32_t header[4];
+    header[0] = static_cast<uint32_t>(secs.count());
+    header[1] = static_cast<uint32_t>(usecs.count());
+    header[2] = static_cast<uint32_t>(len);
+    header[3] = static_cast<uint32_t>(len);
+
+    m_pcapFile.write(reinterpret_cast<const char*>(header), sizeof(header));
+    m_pcapFile.write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(len));
+    if (!m_pcapFile.good()) {
+        log(Severity::ERROR, "PCAP", "Failed to write packet to capture file");
+        return;
+    }
+    m_pcapBytesWritten += sizeof(header) + len;
+}
+
+bool DiagnosticManager::ensurePcapFileUnlocked(std::size_t nextPacketSize)
+{
+    if (!m_pcapCfg.filePath || m_pcapCfg.filePath->empty()) {
+        log(Severity::ERROR, "PCAP", "Capture enabled but no file path configured");
+        m_pcapCfg.enabled = false;
+        return false;
+    }
+
+    std::size_t currentSize = m_pcapBytesWritten;
+    try {
+        if (!m_pcapFile.is_open() && std::filesystem::exists(m_pcapPath))
+            currentSize = std::filesystem::file_size(m_pcapPath);
+    } catch (const std::exception& ex) {
+        log(Severity::ERROR, "PCAP", std::string("Failed to inspect capture file: ") + ex.what());
+        return false;
+    }
+
+    const auto totalSize = currentSize + nextPacketSize;
+    if (m_pcapCfg.maxFileSizeBytes > 0 && totalSize > m_pcapCfg.maxFileSizeBytes)
+        rotatePcapFilesUnlocked();
+
+    if (!m_pcapFile.is_open()) {
+        try {
+            if (!m_pcapPath.empty()) {
+                std::filesystem::create_directories(m_pcapPath.parent_path());
+            }
+            m_pcapFile.open(m_pcapPath, std::ios::binary | std::ios::out | std::ios::app);
+            if (!m_pcapFile.good()) {
+                log(Severity::ERROR, "PCAP", "Failed to open capture file");
+                m_pcapCfg.enabled = false;
+                return false;
+            }
+
+            auto existingSize = std::filesystem::exists(m_pcapPath) ? std::filesystem::file_size(m_pcapPath) : 0;
+            if (existingSize == 0) {
+                writePcapGlobalHeader();
+                m_pcapBytesWritten = kPcapGlobalHeaderSize;
+                log(Severity::INFO, "PCAP", "Capture file created");
+            } else {
+                m_pcapBytesWritten = existingSize;
+            }
+        } catch (const std::exception& ex) {
+            log(Severity::ERROR, "PCAP", std::string("Failed to prepare capture file: ") + ex.what());
+            m_pcapCfg.enabled = false;
+            return false;
+        }
+    }
+
+    return true;
+}
+
+void DiagnosticManager::rotatePcapFilesUnlocked()
+{
+    if (m_pcapFile.is_open())
+        m_pcapFile.close();
+
+    try {
+        auto maxFiles = m_pcapCfg.maxFiles == 0 ? 1u : m_pcapCfg.maxFiles;
+        for (std::size_t idx = maxFiles; idx > 0; --idx) {
+            auto rotated = m_pcapPath;
+            rotated += "." + std::to_string(idx);
+            if (std::filesystem::exists(rotated))
+                std::filesystem::remove(rotated);
+            if (idx == 1)
+                continue;
+            auto prev = m_pcapPath;
+            prev += "." + std::to_string(idx - 1);
+            if (std::filesystem::exists(prev))
+                std::filesystem::rename(prev, rotated);
+        }
+
+        if (std::filesystem::exists(m_pcapPath))
+            std::filesystem::rename(m_pcapPath, m_pcapPath.string() + ".1");
+
+        m_pcapBytesWritten = 0;
+        m_pcapFile.open(m_pcapPath, std::ios::binary | std::ios::out | std::ios::trunc);
+        writePcapGlobalHeader();
+        m_pcapBytesWritten = kPcapGlobalHeaderSize;
+        log(Severity::INFO, "PCAP", "Capture file rotated");
+    } catch (const std::exception& ex) {
+        log(Severity::ERROR, "PCAP", std::string("Failed to rotate capture file: ") + ex.what());
+        m_pcapCfg.enabled = false;
+    }
+}
+
+void DiagnosticManager::writePcapGlobalHeader()
+{
+    struct Header {
+        uint32_t magic {0xa1b2c3d4};
+        uint16_t versionMajor {2};
+        uint16_t versionMinor {4};
+        int32_t thisZone {0};
+        uint32_t sigFigs {0};
+        uint32_t snapLen {65535};
+        uint32_t network {1};
+    };
+
+    Header hdr {};
+    m_pcapFile.write(reinterpret_cast<const char*>(&hdr), sizeof(hdr));
 }
 
 void DiagnosticManager::workerThreadFn()

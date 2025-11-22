@@ -73,7 +73,9 @@ The Drogon server exposes JSON endpoints:
 
 ## Logging & diagnostics
 
-The simulator honors the `<Debug>` stanza in the XML to route logs to a file (with rotation) or stdout. Diagnostic events are collected by `DiagnosticManager`, which also samples PD/MD metrics and makes them available via `/api/diag/events` and `/api/diag/metrics`.
+The simulator honors the `<Debug>` stanza in the XML to route logs to a file (with rotation) or stdout. The new optional `<Pcap>` block (see `config/trdp.xml`) enables binary packet captures with rotation controls and direction filters. CLI flags such as `--pcap-enable`, `--pcap-file <path>`, `--pcap-max-size <bytes>`, `--pcap-max-files <n>`, `--pcap-rx-only`, and `--pcap-tx-only` override the XML at launch.
+
+Diagnostic events are collected by `DiagnosticManager`, which also samples PD/MD metrics and makes them available via `/api/diag/events` and `/api/diag/metrics`.
 
 ## Testing
 

@@ -114,6 +114,21 @@ std::optional<DebugConfig> parseDebug(XMLElement* dbgElem)
     return d;
 }
 
+std::optional<PcapConfig> parsePcap(XMLElement* pcapElem)
+{
+    if (!pcapElem)
+        return std::nullopt;
+
+    PcapConfig cfg;
+    cfg.enabled = parseBool(pcapElem, "enabled", false);
+    cfg.captureTx = parseBool(pcapElem, "captureTx", true);
+    cfg.captureRx = parseBool(pcapElem, "captureRx", true);
+    cfg.fileName = parseString(pcapElem, "fileName", true);
+    cfg.maxSizeBytes = parseUnsigned<uint32_t>(pcapElem, "maxSizeBytes", false, 0);
+    cfg.maxFiles = parseUnsigned<uint32_t>(pcapElem, "maxFiles", false, 2);
+    return cfg;
+}
+
 std::vector<ComParameter> parseComParameters(XMLElement* parent)
 {
     std::vector<ComParameter> out;
@@ -326,6 +341,7 @@ DeviceConfig ConfigManager::loadDeviceConfigFromXml(const std::string& path)
 
     cfg.memory = parseMemory(deviceElem->FirstChildElement("Memory"));
     cfg.debug = parseDebug(deviceElem->FirstChildElement("Debug"));
+    cfg.pcap = parsePcap(deviceElem->FirstChildElement("Pcap"));
     cfg.comParameters = parseComParameters(deviceElem->FirstChildElement("ComParameters"));
 
     if (auto* dsRoot = deviceElem->FirstChildElement("DataSets")) {
@@ -371,6 +387,13 @@ void ConfigManager::validateDeviceConfig(const DeviceConfig& cfg)
     for (const auto& cp : cfg.comParameters) {
         if (!comParamIds.insert(cp.id).second)
             throw std::runtime_error("Duplicate comParameter id: " + std::to_string(cp.id));
+    }
+
+    if (cfg.pcap && cfg.pcap->enabled) {
+        if (cfg.pcap->fileName.empty())
+            throw std::runtime_error("PCAP capture enabled but fileName is missing");
+        if (!cfg.pcap->captureTx && !cfg.pcap->captureRx)
+            throw std::runtime_error("PCAP capture must enable at least one of captureTx or captureRx");
     }
 
     for (const auto& iface : cfg.interfaces) {

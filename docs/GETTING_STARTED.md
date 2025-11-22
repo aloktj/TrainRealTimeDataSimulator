@@ -48,6 +48,7 @@ Add `-DTRDP_ENABLE_TESTS=ON` to configure the GoogleTest targets. Set `-DTRDP_US
 The sample `config/trdp.xml` demonstrates the supported schema:
 
 - `<Debug>`: enables file logging with a maximum size and severity threshold (used to configure `DiagnosticManager`).
+- `<Pcap>`: optionally enables packet captures with `enabled`, `fileName`, `maxSizeBytes`, `maxFiles`, and `captureTx`/`captureRx` toggles.
 - `<DataSets>`: declares dataset IDs/names and each element's type/array size.
 - `<Interfaces>/<Telegrams>`: PD telegrams specify cycle/timeout/validity rules and destinations; MD telegrams omit `<PdParameters>` to indicate MD behavior.
 - `<MappedDevices>`: maps COM IDs to host/leader IPs for redundancy or external peers.

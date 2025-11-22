@@ -4,6 +4,7 @@
         <Block size="8192" preallocate="2" />
     </Memory>
     <Debug fileName="logs/trdp.log" fileSize="1048576" info="development" level="D" />
+    <Pcap enabled="true" fileName="logs/trdp.pcap" captureTx="true" captureRx="true" maxSizeBytes="1048576" maxFiles="3" />
 
     <ComParameters>
         <ComParameter id="1" qos="5" ttl="64" />

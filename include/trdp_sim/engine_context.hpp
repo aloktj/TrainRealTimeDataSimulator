@@ -31,6 +31,10 @@ struct MdSessionRuntime;
 }
 } // namespace engine
 
+namespace diag {
+class DiagnosticManager;
+}
+
 namespace trdp_sim {
 
 namespace pd = engine::pd;
@@ -80,6 +84,9 @@ struct EngineContext
 
     // Global running flag
     bool running { false };
+
+    // Diagnostics
+    diag::DiagnosticManager* diagManager { nullptr };
 
     ~EngineContext();
 };
