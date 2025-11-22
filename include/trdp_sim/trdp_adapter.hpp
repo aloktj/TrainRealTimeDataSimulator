@@ -4,9 +4,17 @@
 #include <cstdint>
 #include <mutex>
 #include <optional>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "engine_context.hpp"
+
+namespace config
+{
+    struct BusInterfaceConfig;
+}
 
 namespace trdp_sim::trdp
 {
@@ -49,6 +57,14 @@ namespace trdp_sim::trdp
         TrdpErrorCounters       getErrorCounters() const;
         std::optional<uint32_t> getLastErrorCode() const;
 
+        // Multicast helpers
+        void                                        applyMulticastConfig(const config::BusInterfaceConfig& iface);
+        bool                                        joinMulticast(const std::string& ifaceName, const std::string& group,
+                                                                   const std::optional<std::string>& nic = std::nullopt,
+                                                                   const std::optional<std::string>& hostIp = std::nullopt);
+        bool                                        leaveMulticast(const std::string& ifaceName, const std::string& group);
+        std::vector<trdp_sim::EngineContext::MulticastGroupState> getMulticastState() const;
+
         // Helpful for tests/stubs
         std::vector<uint8_t>  getLastPdPayload() const;
         std::vector<uint8_t>  getLastMdRequestPayload() const;
@@ -74,6 +90,9 @@ namespace trdp_sim::trdp
         std::optional<int>      m_pdSendResult;
         std::optional<int>      m_mdRequestResult;
         std::optional<int>      m_mdReplyResult;
+
+        mutable std::mutex                                       m_multicastMtx;
+        std::unordered_map<std::string, std::unordered_set<std::string>> m_multicastMembership;
 
         void recordError(uint32_t code, uint64_t TrdpErrorCounters::* member);
     };

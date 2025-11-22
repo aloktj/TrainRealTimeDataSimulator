@@ -18,11 +18,13 @@
 namespace api
 {
 
+    namespace trdp = trdp_sim::trdp;
+
     class BackendApi
     {
       public:
         BackendApi(trdp_sim::EngineContext& ctx, trdp_sim::BackendEngine& backend, engine::pd::PdEngine& pd,
-                   engine::md::MdEngine& md, diag::DiagnosticManager& diag);
+                   engine::md::MdEngine& md, trdp::TrdpAdapter& trdpAdapter, diag::DiagnosticManager& diag);
 
         // PD related:
         nlohmann::json getPdStatus() const;
@@ -43,6 +45,10 @@ namespace api
         void           reloadConfiguration(const std::string& xmlPath);
         nlohmann::json getConfigSummary() const;
         nlohmann::json getConfigDetail() const;
+        nlohmann::json getMulticastStatus() const;
+        bool           joinMulticastGroup(const std::string& ifaceName, const std::string& group,
+                                          const std::optional<std::string>& nic);
+        bool           leaveMulticastGroup(const std::string& ifaceName, const std::string& group);
 
         // Diagnostics:
         nlohmann::json getRecentEvents(std::size_t maxEvents) const;
@@ -58,6 +64,7 @@ namespace api
         engine::md::MdEngine&    m_md;
         diag::DiagnosticManager& m_diag;
         trdp_sim::BackendEngine& m_backend;
+        trdp::TrdpAdapter&       m_trdp;
     };
 
 } // namespace api

@@ -97,6 +97,12 @@ namespace config
         bool             callbackEnabled{false};
     };
 
+    struct MulticastGroupConfig
+    {
+        std::string                address;
+        std::optional<std::string> nic;
+    };
+
     struct MdComParameter
     {
         enum class Protocol
@@ -179,11 +185,13 @@ namespace config
     {
         uint32_t                    networkId{};
         std::string                 name;
+        std::optional<std::string>  nic;
         std::optional<std::string>  hostIp;
         TrdpProcessConfig           trdpProcess;
         PdComParameter              pdCom;
         MdComParameter              mdCom;
         std::vector<TelegramConfig> telegrams;
+        std::vector<MulticastGroupConfig> multicastGroups;
     };
 
     struct MappedTelegramConfig

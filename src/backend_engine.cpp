@@ -2,6 +2,8 @@
 
 #include "diagnostic_manager.hpp"
 
+#include <mutex>
+
 namespace trdp_sim
 {
 
@@ -39,6 +41,23 @@ namespace trdp_sim
         m_ctx.mdSessions.clear();
 
         m_ctx.deviceConfig = cfg;
+
+        {
+            std::lock_guard<std::mutex> lk(m_ctx.multicastMtx);
+            m_ctx.multicastGroups.clear();
+            for (const auto& iface : cfg.interfaces)
+            {
+                for (const auto& group : iface.multicastGroups)
+                {
+                    EngineContext::MulticastGroupState state;
+                    state.ifaceName = iface.name;
+                    state.address   = group.address;
+                    state.nic       = group.nic;
+                    state.hostIp    = iface.hostIp;
+                    m_ctx.multicastGroups.push_back(std::move(state));
+                }
+            }
+        }
 
         rebuildDataSets(cfg);
 
