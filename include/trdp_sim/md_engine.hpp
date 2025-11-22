@@ -7,6 +7,7 @@
 #include <optional>
 #include <thread>
 #include <unordered_map>
+#include <vector>
 
 #include "engine_context.hpp"
 
@@ -47,8 +48,17 @@ namespace engine::md
         uint64_t                              rxCount{0};
         uint64_t                              retryCount{0};
         uint64_t                              timeoutCount{0};
+        uint64_t                              lastRoundTripUs{0};
         std::chrono::steady_clock::time_point lastTxTime{};
         std::chrono::steady_clock::time_point lastRxTime{};
+    };
+
+    struct MdIndicationContext
+    {
+        uint32_t   sessionId{0};
+        uint32_t   comId{0};
+        MdProtocol proto{MdProtocol::UDP};
+        uint32_t   resultCode{0};
     };
 
     struct MdSessionRuntime
@@ -67,6 +77,10 @@ namespace engine::md
         TRDP_LR_T                             mdHandle{0};
         std::chrono::steady_clock::time_point lastStateChange{};
         std::chrono::steady_clock::time_point deadline{};
+        std::chrono::steady_clock::time_point lastRequestWall{};
+        std::chrono::steady_clock::time_point lastResponseWall{};
+        std::vector<uint8_t>                  lastRequestPayload;
+        std::vector<uint8_t>                  lastResponsePayload;
         MdRuntimeStats                        stats{};
         std::mutex                            mtx;
     };
@@ -90,7 +104,7 @@ namespace engine::md
         void     sendRequest(uint32_t sessionId);
 
         // Called by TrdpAdapter:
-        void onMdIndication(uint32_t sessionId, const uint8_t* data, std::size_t len);
+        void onMdIndication(const TRDP_MD_INFO_T* info, const uint8_t* data, std::size_t len);
 
         std::optional<MdSessionRuntime*> getSession(uint32_t sessionId);
         static const char*               stateToString(MdSessionState state);

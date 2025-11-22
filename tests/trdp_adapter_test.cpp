@@ -124,7 +124,11 @@ TEST_F(TrdpAdapterEngineHarness, CallbacksPopulateDatasets)
     auto sessionId = mdEngine.createRequestSession(2001);
     ASSERT_NE(sessionId, 0u);
     const std::array<uint8_t, 5> mdPayload{0x07, 0xEF, 0xBE, 0xAD, 0xDE};
-    adapter.handleMdCallback(sessionId, mdPayload.data(), mdPayload.size());
+    TRDP_MD_INFO_T info{};
+    info.sessionId = sessionId;
+    info.comId     = 2001;
+    info.protocol  = TRDP_MD_TCP;
+    adapter.handleMdCallback(&info, mdPayload.data(), mdPayload.size());
 
     auto opt = mdEngine.getSession(sessionId);
     ASSERT_TRUE(opt.has_value());

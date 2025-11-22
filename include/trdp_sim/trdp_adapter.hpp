@@ -41,7 +41,7 @@ namespace trdp_sim::trdp
         // MD
         int  sendMdRequest(engine::md::MdSessionRuntime& session, const std::vector<uint8_t>& payload);
         int  sendMdReply(engine::md::MdSessionRuntime& session, const std::vector<uint8_t>& payload);
-        void handleMdCallback(uint32_t sessionId, const uint8_t* data, std::size_t len);
+        void handleMdCallback(const TRDP_MD_INFO_T* info, const uint8_t* data, std::size_t len);
 
         // Event loop integration
         void processOnce(); // e.g. called periodically by main loop

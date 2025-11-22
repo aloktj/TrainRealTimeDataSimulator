@@ -123,17 +123,18 @@ namespace trdp_sim::trdp
         return 0;
     }
 
-    void TrdpAdapter::handleMdCallback(uint32_t sessionId, const uint8_t* data, std::size_t len)
+    void TrdpAdapter::handleMdCallback(const TRDP_MD_INFO_T* info, const uint8_t* data, std::size_t len)
     {
         if (m_ctx.diagManager)
         {
+            const uint32_t comId = info ? info->comId : 0;
             m_ctx.diagManager->writePacketToPcap(data, len, false);
             m_ctx.diagManager->log(diag::Severity::DEBUG, "MD", "MD packet received",
-                                   buildPcapEventJson(sessionId, len, "rx"));
+                                   buildPcapEventJson(comId, len, "rx"));
         }
         if (m_ctx.mdEngine)
         {
-            m_ctx.mdEngine->onMdIndication(sessionId, data, len);
+            m_ctx.mdEngine->onMdIndication(info, data, len);
         }
     }
 
