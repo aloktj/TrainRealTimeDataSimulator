@@ -20,75 +20,80 @@
 #include "config_manager.hpp"
 #include "data_types.hpp"
 
-namespace engine {
-namespace pd {
-class PdEngine;
-struct PdTelegramRuntime;
-}
-namespace md {
-class MdEngine;
-struct MdSessionRuntime;
-}
+namespace engine
+{
+    namespace pd
+    {
+        class PdEngine;
+        struct PdTelegramRuntime;
+    } // namespace pd
+    namespace md
+    {
+        class MdEngine;
+        struct MdSessionRuntime;
+    } // namespace md
 } // namespace engine
 
-namespace diag {
-class DiagnosticManager;
+namespace diag
+{
+    class DiagnosticManager;
 }
 
-namespace trdp_sim {
-
-namespace pd = engine::pd;
-namespace md = engine::md;
-namespace cfg = config;
-
-struct PdRuntimeDeleter
+namespace trdp_sim
 {
-    void operator()(pd::PdTelegramRuntime* ptr) const;
-};
 
-struct MdSessionDeleter
-{
-    void operator()(md::MdSessionRuntime* ptr) const;
-};
+    namespace pd  = engine::pd;
+    namespace md  = engine::md;
+    namespace cfg = config;
 
-struct EngineContext
-{
-    EngineContext() = default;
-    EngineContext(const EngineContext&) = delete;
-    EngineContext& operator=(const EngineContext&) = delete;
-    EngineContext(EngineContext&&) = default;
-    EngineContext& operator=(EngineContext&&) = default;
+    struct PdRuntimeDeleter
+    {
+        void operator()(pd::PdTelegramRuntime* ptr) const;
+    };
 
-    cfg::DeviceConfig deviceConfig;
+    struct MdSessionDeleter
+    {
+        void operator()(md::MdSessionRuntime* ptr) const;
+    };
 
-    // Dataset definitions & instances
-    std::unordered_map<uint32_t, data::DataSetDef> dataSetDefs;
-    std::unordered_map<uint32_t, std::unique_ptr<data::DataSetInstance>> dataSetInstances;
+    struct EngineContext
+    {
+        EngineContext()                                = default;
+        EngineContext(const EngineContext&)            = delete;
+        EngineContext& operator=(const EngineContext&) = delete;
+        EngineContext(EngineContext&&)                 = default;
+        EngineContext& operator=(EngineContext&&)      = default;
 
-    // PD telegrams
-    std::vector<std::unique_ptr<pd::PdTelegramRuntime, PdRuntimeDeleter>> pdTelegrams;
+        cfg::DeviceConfig deviceConfig;
 
-    // MD sessions (sessionId → runtime)
-    std::unordered_map<uint32_t, std::unique_ptr<md::MdSessionRuntime, MdSessionDeleter>> mdSessions;
+        // Dataset definitions & instances
+        std::unordered_map<uint32_t, data::DataSetDef>                       dataSetDefs;
+        std::unordered_map<uint32_t, std::unique_ptr<data::DataSetInstance>> dataSetInstances;
 
-    // TRDP session
-    TRDP_APP_SESSION_T trdpSession { nullptr };
+        // PD telegrams
+        std::vector<std::unique_ptr<pd::PdTelegramRuntime, PdRuntimeDeleter>> pdTelegrams;
 
-    // Engine back-references for callbacks
-    engine::pd::PdEngine* pdEngine { nullptr };
-    engine::md::MdEngine* mdEngine { nullptr };
+        // MD sessions (sessionId → runtime)
+        std::unordered_map<uint32_t, std::unique_ptr<md::MdSessionRuntime, MdSessionDeleter>> mdSessions;
 
-    // Threads (optional)
-    std::thread pdPublisherThread;
-    std::thread diagThread;
+        // TRDP session
+        TRDP_APP_SESSION_T trdpSession{nullptr};
 
-    // Global running flag
-    bool running { false };
+        // Engine back-references for callbacks
+        engine::pd::PdEngine* pdEngine{nullptr};
+        engine::md::MdEngine* mdEngine{nullptr};
 
-    // Diagnostics
-    diag::DiagnosticManager* diagManager { nullptr };
+        // Threads (optional)
+        std::thread pdPublisherThread;
+        std::thread diagThread;
 
-    ~EngineContext();
-};
+        // Global running flag
+        bool running{false};
+
+        // Diagnostics
+        diag::DiagnosticManager* diagManager{nullptr};
+
+        ~EngineContext();
+    };
 
 } // namespace trdp_sim

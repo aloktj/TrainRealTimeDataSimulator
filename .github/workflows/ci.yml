@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    env:
+      CCACHE_DIR: ~/.cache/ccache
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-${{ hashFiles('**/CMakeLists.txt', '.github/workflows/ci.yml') }}
+          restore-keys: |
+            ccache-${{ runner.os }}-
+
+      - name: Restore CMake dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: cmake-deps-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: |
+            cmake-deps-${{ runner.os }}-
+
+      - name: Install build tools and libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            ninja-build \
+            cmake \
+            libjsoncpp-dev \
+            nlohmann-json3-dev \
+            libdrogon-dev \
+            libmysqlclient-dev \
+            libhiredis-dev \
+            libyaml-cpp-dev \
+            clang-format \
+            ccache
+
+      - name: Configure CMake
+        run: |
+          cmake -S . -B build -GNinja \
+            -DTRDP_USE_STUBS=ON \
+            -DTRDP_ENABLE_TESTS=ON \
+            -DTRDP_WARNINGS_AS_ERRORS=ON \
+            -DMYSQL_INCLUDE_DIR=/usr/include/mysql \
+            -DMYSQL_LIBRARIES=/usr/lib/x86_64-linux-gnu/libmysqlclient.so \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build
+        run: cmake --build build --config Debug
+
+      - name: Check formatting
+        run: |
+          clang-format --version
+          clang-format --dry-run --Werror $(find src include tests -name '*.cpp' -o -name '*.hpp')
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctest-logs
+          path: |
+            build/Testing
+            build/Testing/Temporary/LastTest.log
+          if-no-files-found: ignore

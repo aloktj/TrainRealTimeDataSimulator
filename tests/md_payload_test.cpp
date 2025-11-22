@@ -9,34 +9,37 @@
 #include <memory>
 #include <mutex>
 
-namespace {
-
-trdp_sim::EngineContext buildContextFromConfig()
+namespace
 {
-    config::ConfigManager mgr;
-    trdp_sim::EngineContext ctx;
-    const auto configPath = std::filesystem::path(__FILE__).parent_path().parent_path() / "config" / "sample_ci_device.xml";
-    ctx.deviceConfig = mgr.loadDeviceConfigFromXml(configPath.string());
-    mgr.validateDeviceConfig(ctx.deviceConfig);
 
-    auto defs = mgr.buildDataSetDefs(ctx.deviceConfig);
-    for (auto& def : defs) {
-        ctx.dataSetDefs[def.id] = def;
-        auto inst = std::make_unique<data::DataSetInstance>();
-        inst->def = &ctx.dataSetDefs[def.id];
-        inst->values.resize(def.elements.size());
-        ctx.dataSetInstances[def.id] = std::move(inst);
+    trdp_sim::EngineContext buildContextFromConfig()
+    {
+        config::ConfigManager   mgr;
+        trdp_sim::EngineContext ctx;
+        const auto              configPath =
+            std::filesystem::path(__FILE__).parent_path().parent_path() / "config" / "sample_ci_device.xml";
+        ctx.deviceConfig = mgr.loadDeviceConfigFromXml(configPath.string());
+        mgr.validateDeviceConfig(ctx.deviceConfig);
+
+        auto defs = mgr.buildDataSetDefs(ctx.deviceConfig);
+        for (auto& def : defs)
+        {
+            ctx.dataSetDefs[def.id] = def;
+            auto inst               = std::make_unique<data::DataSetInstance>();
+            inst->def               = &ctx.dataSetDefs[def.id];
+            inst->values.resize(def.elements.size());
+            ctx.dataSetInstances[def.id] = std::move(inst);
+        }
+        return ctx;
     }
-    return ctx;
-}
 
 } // namespace
 
 TEST(MdPayload, MarshalsRequestPayload)
 {
-    auto ctx = buildContextFromConfig();
+    auto                        ctx = buildContextFromConfig();
     trdp_sim::trdp::TrdpAdapter adapter(ctx);
-    engine::md::MdEngine mdEngine(ctx, adapter);
+    engine::md::MdEngine        mdEngine(ctx, adapter);
     ctx.mdEngine = &mdEngine;
 
     mdEngine.initializeFromConfig();
@@ -46,9 +49,9 @@ TEST(MdPayload, MarshalsRequestPayload)
     auto* inst = dsIt->second.get();
     {
         std::lock_guard<std::mutex> lk(inst->mtx);
-        inst->values[0].raw = {0x7F};
+        inst->values[0].raw     = {0x7F};
         inst->values[0].defined = true;
-        inst->values[1].raw = {0x12, 0x34, 0x56, 0x78};
+        inst->values[1].raw     = {0x12, 0x34, 0x56, 0x78};
         inst->values[1].defined = true;
     }
 
@@ -68,9 +71,9 @@ TEST(MdPayload, MarshalsRequestPayload)
 
 TEST(MdPayload, UnmarshalsTruncatedReply)
 {
-    auto ctx = buildContextFromConfig();
+    auto                        ctx = buildContextFromConfig();
     trdp_sim::trdp::TrdpAdapter adapter(ctx);
-    engine::md::MdEngine mdEngine(ctx, adapter);
+    engine::md::MdEngine        mdEngine(ctx, adapter);
     ctx.mdEngine = &mdEngine;
 
     mdEngine.initializeFromConfig();
@@ -78,7 +81,7 @@ TEST(MdPayload, UnmarshalsTruncatedReply)
     auto sessionId = mdEngine.createRequestSession(2001);
     ASSERT_NE(sessionId, 0u);
 
-    const std::array<uint8_t, 3> payload {0xAA, 0xBB, 0xCC};
+    const std::array<uint8_t, 3> payload{0xAA, 0xBB, 0xCC};
     mdEngine.onMdIndication(sessionId, payload.data(), payload.size());
 
     auto opt = mdEngine.getSession(sessionId);
