@@ -1,7 +1,10 @@
 #include "pd_engine.hpp"
 #include "data_marshalling.hpp"
+#include "diagnostic_manager.hpp"
 #include "trdp_adapter.hpp"
 
+#include <arpa/inet.h>
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <iostream>
@@ -52,6 +55,23 @@ namespace engine::pd
                 rt->dataset->isOutgoing = !tel.destinations.empty();
                 rt->direction           = tel.destinations.empty() ? Direction::SUBSCRIBE : Direction::PUBLISH;
                 rt->enabled             = true;
+                rt->activeChannel       = 0;
+                if (!tel.destinations.empty())
+                {
+                    for (const auto& dest : tel.destinations)
+                    {
+                        PdTelegramRuntime::PublicationChannel ch{};
+                        ch.destIp = dest.uri.empty() ? 0 : inet_addr(dest.uri.c_str());
+                        rt->pubChannels.push_back(ch);
+                    }
+
+                    if (rt->pubChannels.empty())
+                    {
+                        PdTelegramRuntime::PublicationChannel ch{};
+                        ch.destIp = 0;
+                        rt->pubChannels.push_back(ch);
+                    }
+                }
 
                 if (rt->direction == Direction::SUBSCRIBE)
                 {
@@ -97,6 +117,25 @@ namespace engine::pd
             {
                 std::lock_guard<std::mutex> lk(pd.mtx);
                 pd.enabled = enable;
+                if (m_ctx.diagManager)
+                {
+                    m_ctx.diagManager->log(diag::Severity::INFO, "PD",
+                                           std::string("PD COM ID ") + std::to_string(comId) +
+                                               (enable ? " enabled" : " disabled"));
+                }
+            }
+        }
+    }
+
+    void PdEngine::triggerSendNow(uint32_t comId)
+    {
+        for (auto& pdPtr : m_ctx.pdTelegrams)
+        {
+            auto& pd = *pdPtr;
+            if (pd.cfg && pd.cfg->comId == comId && pd.direction == Direction::PUBLISH)
+            {
+                std::lock_guard<std::mutex> lk(pd.mtx);
+                pd.sendNow = true;
             }
         }
     }
@@ -128,22 +167,50 @@ namespace engine::pd
             if (pd.stats.lastRxTime.time_since_epoch().count() != 0)
             {
                 auto delta = std::chrono::duration_cast<std::chrono::microseconds>(now - pd.stats.lastRxTime);
+                pd.stats.lastInterarrivalUs = static_cast<double>(delta.count());
                 if (cycleUs > 0)
                 {
                     auto jitter                = static_cast<double>(delta.count()) - static_cast<double>(cycleUs);
                     pd.stats.lastCycleJitterUs = std::abs(jitter);
                 }
                 if (timeoutUs > 0 && static_cast<uint64_t>(delta.count()) > timeoutUs)
+                {
                     pd.stats.timeoutCount++;
+                    pd.stats.timedOut = true;
+                    if (pd.cfg->pdParam &&
+                        pd.cfg->pdParam->validityBehavior == config::PdComParameter::ValidityBehavior::ZERO)
+                    {
+                        std::lock_guard<std::mutex> dsLock(ds->mtx);
+                        for (auto& cell : ds->values)
+                        {
+                            cell.defined = false;
+                            std::fill(cell.raw.begin(), cell.raw.end(), 0);
+                        }
+                    }
+                }
             }
 
             pd.stats.rxCount++;
             pd.stats.lastSeqNumber++;
             pd.stats.lastRxTime = now;
+            pd.stats.lastRxWall = std::chrono::system_clock::now();
+            pd.stats.timedOut   = false;
 
             std::lock_guard<std::mutex> dsLock(ds->mtx);
             if (!ds->locked)
-                unmarshalDataToDataSet(*ds, m_ctx, data, len);
+            {
+                const bool shouldMarshall = pd.cfg->pdParam ? pd.cfg->pdParam->marshall : pd.pdComCfg->marshall;
+                if (shouldMarshall)
+                {
+                    unmarshalDataToDataSet(*ds, m_ctx, data, len);
+                }
+                else if (!ds->values.empty())
+                {
+                    auto& cell = ds->values.front();
+                    cell.raw.assign(data, data + len);
+                    cell.defined = true;
+                }
+            }
         }
     }
 
@@ -162,25 +229,48 @@ namespace engine::pd
                     continue;
 
                 auto cycle = microseconds(pd.cfg->pdParam->cycleUs);
-                if (pd.stats.lastTxTime.time_since_epoch().count() == 0 || now - pd.stats.lastTxTime >= cycle)
+                if (pd.sendNow || pd.stats.lastTxTime.time_since_epoch().count() == 0 || now - pd.stats.lastTxTime >= cycle)
                 {
-
                     auto* ds = pd.dataset;
                     if (!ds)
                         continue;
 
                     std::lock_guard<std::mutex> dsLock(ds->mtx);
-                    auto                        payload = marshalDataSet(*ds, m_ctx);
-                    int                         rc      = m_adapter.sendPdData(pd, payload);
+                    const bool                  shouldMarshall = pd.cfg->pdParam ? pd.cfg->pdParam->marshall :
+                                                                   pd.pdComCfg->marshall;
+                    auto payload = shouldMarshall ? marshalDataSet(*ds, m_ctx)
+                                                  : std::vector<uint8_t>(ds->values.empty() ? 0 : ds->values.front().raw.size());
+                    if (!shouldMarshall && !ds->values.empty())
+                    {
+                        payload = ds->values.front().raw;
+                    }
+
+                    int rc = m_adapter.sendPdData(pd, payload);
                     if (rc == 0)
                     {
                         pd.stats.txCount++;
                         pd.stats.lastSeqNumber++;
                         pd.stats.lastTxTime = now;
+                        pd.stats.lastTxWall = std::chrono::system_clock::now();
+                        pd.sendNow          = false;
                     }
                     else
                     {
                         std::cerr << "Failed to send PD COM ID " << pd.cfg->comId << " (rc=" << rc << ")" << std::endl;
+                    }
+                }
+
+                if (pd.direction == Direction::SUBSCRIBE && pd.cfg && pd.cfg->pdParam)
+                {
+                    auto timeoutUs = pd.cfg->pdParam->timeoutUs;
+                    if (timeoutUs > 0 && pd.stats.lastRxTime.time_since_epoch().count() != 0)
+                    {
+                        auto delta = duration_cast<microseconds>(now - pd.stats.lastRxTime);
+                        if (!pd.stats.timedOut && static_cast<uint64_t>(delta.count()) > timeoutUs)
+                        {
+                            pd.stats.timeoutCount++;
+                            pd.stats.timedOut = true;
+                        }
                     }
                 }
             }

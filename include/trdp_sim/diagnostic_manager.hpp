@@ -68,6 +68,10 @@ namespace diag
         uint64_t    rxCount{0};
         uint64_t    timeoutCount{0};
         double      maxCycleJitterUs{0.0};
+        double      maxInterarrivalUs{0.0};
+        uint64_t    activeTimeouts{0};
+        std::chrono::system_clock::time_point latestRxWall{};
+        std::chrono::system_clock::time_point latestTxWall{};
     };
 
     struct MdMetrics

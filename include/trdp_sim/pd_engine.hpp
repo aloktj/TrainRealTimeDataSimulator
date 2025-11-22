@@ -32,10 +32,20 @@ namespace engine::pd
         std::chrono::steady_clock::time_point lastTxTime{};
         std::chrono::steady_clock::time_point lastRxTime{};
         double                                lastCycleJitterUs{0.0};
+        double                                lastInterarrivalUs{0.0};
+        bool                                  timedOut{false};
+        std::chrono::system_clock::time_point lastTxWall{};
+        std::chrono::system_clock::time_point lastRxWall{};
     };
 
     struct PdTelegramRuntime
     {
+        struct PublicationChannel
+        {
+            TRDP_PUB_T    handle{nullptr};
+            TRDP_IP_ADDR_T destIp{0};
+        };
+
         const config::TelegramConfig*     cfg{nullptr};
         const config::BusInterfaceConfig* ifaceCfg{nullptr};
         const config::PdComParameter*     pdComCfg{nullptr};
@@ -45,8 +55,9 @@ namespace engine::pd
         bool                              enabled{false};
         bool                              redundantActive{false};
         uint32_t                          activeChannel{0};
-        TRDP_PUB_T                        pubHandle{nullptr};
+        std::vector<PublicationChannel>   pubChannels;
         TRDP_SUB_T                        subHandle{nullptr};
+        bool                              sendNow{false};
         std::mutex                        mtx;
     };
 
@@ -61,6 +72,7 @@ namespace engine::pd
         void stop();
 
         void enableTelegram(uint32_t comId, bool enable);
+        void triggerSendNow(uint32_t comId);
 
         // Dataset access:
         data::DataSetInstance* getDataSetInstance(uint32_t dataSetId);
