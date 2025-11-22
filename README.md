@@ -60,6 +60,7 @@ Configuration lives in `config/trdp.xml` and follows the TRDP device schema:
 - `<ComParameters>`: reusable QoS/TTL definitions referenced by telegrams.
 - `<DataSets>`: named dataset schemas (e.g., dataset 100 `TrainStatus` with `REAL32` speed and `BOOL8` doorOpen fields; dataset 101 `Diagnostic` with `UINT32` code and `UINT8` severity).
 - `<Interfaces>`: per-network TRDP settings, PD/MD com parameters, and telegrams. PD telegrams define cycle/timeout/validity behavior plus destinations; MD telegrams omit `<PdParameters>` and are treated as message data sessions.
+- `<MulticastGroups>` (inside each `<Interface>`): multicast addresses (and optional `nic` overrides) that are joined automatically at startup, useful for unicast/multicast routing across multiple NICs.
 - `<MappedDevices>`: maps COM IDs and host/leader IPs to interface names for redundant or remote peers.
 
 See `config/trdp.xml` for a complete sample that exercises PD publish/subscribe and an MD request telegram.
@@ -71,6 +72,7 @@ The Drogon server exposes JSON endpoints:
 - PD control: `GET /api/pd/status`, `POST /api/pd/{comId}/enable` with `{ "enabled": true }`.
 - Dataset values: `GET /api/datasets/{dataSetId}`; `POST /api/datasets/{dataSetId}/elements/{idx}` with `{ "raw": [0,1,...] }` or `{ "clear": true }`; `POST /api/datasets/{dataSetId}/lock` with `{ "locked": true }`.
 - Config: `GET /api/config` and `POST /api/config/reload` with `{ "path": "config/trdp.xml" }`.
+- Multicast: `GET /api/network/multicast` for current membership; `POST /api/network/multicast/join` or `/leave` with `{ "interface": "eth0", "group": "239.0.0.1", "nic": "br0" }` to manually manage joins.
 - MD: `POST /api/md/{comId}/request` to create/send an MD request, then `GET /api/md/session/{sessionId}` for status.
 - Diagnostics: `GET /api/diag/events?max=50`, `GET /api/diag/metrics`, and `POST /api/diag/event` with `{ "component": "sim", "message": "...", "severity": "W" }` to inject events.
 

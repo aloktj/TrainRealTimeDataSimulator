@@ -23,10 +23,14 @@
     </DataSets>
 
     <Interfaces>
-        <Interface name="eth0" networkId="1" hostIp="192.168.0.10">
+        <Interface name="eth0" networkId="1" hostIp="192.168.0.10" nic="eth0">
             <TrdpProcess blocking="false" cycleTimeUs="1000" priority="10" trafficShaping="true" />
             <PdCom marshall="true" port="17224" qos="4" ttl="32" timeoutUs="200000" validityBehavior="KEEP" callbackEnabled="true" />
             <MdCom udpPort="17225" tcpPort="17226" confirmTimeoutUs="500000" connectTimeoutUs="500000" replyTimeoutUs="500000" marshall="true" protocol="UDP" qos="5" ttl="64" retries="2" numSessions="4" />
+            <MulticastGroups>
+                <Group address="239.0.0.1" />
+                <Group address="239.0.0.2" nic="br0" />
+            </MulticastGroups>
             <Telegrams>
                 <Telegram name="TrainStatusTx" comId="5000" dataSetId="100" comParameterId="1">
                     <PdParameters cycleUs="100000" marshall="true" timeoutUs="200000" validityBehavior="KEEP" redundant="0" callback="false" offsetAddress="0" />
@@ -39,6 +43,19 @@
                 </Telegram>
                 <Telegram name="DiagMdRequest" comId="6000" dataSetId="101" comParameterId="2">
                     <!-- MD telegram without PdParameters signals MD flow -->
+                </Telegram>
+            </Telegrams>
+        </Interface>
+        <Interface name="eth1" networkId="2" hostIp="10.10.0.20" nic="eth1">
+            <TrdpProcess blocking="false" cycleTimeUs="2000" priority="8" trafficShaping="false" />
+            <PdCom marshall="true" port="18224" qos="5" ttl="64" timeoutUs="300000" validityBehavior="KEEP" callbackEnabled="true" />
+            <MdCom udpPort="18225" tcpPort="18226" confirmTimeoutUs="750000" connectTimeoutUs="750000" replyTimeoutUs="750000" marshall="true" protocol="UDP" qos="6" ttl="64" retries="1" numSessions="2" />
+            <MulticastGroups>
+                <Group address="239.0.0.10" />
+            </MulticastGroups>
+            <Telegrams>
+                <Telegram name="TrainStatusBackupTx" comId="5010" dataSetId="100" comParameterId="1">
+                    <PdParameters cycleUs="150000" marshall="true" timeoutUs="300000" validityBehavior="KEEP" redundant="0" callback="false" offsetAddress="0" />
                 </Telegram>
             </Telegrams>
         </Interface>

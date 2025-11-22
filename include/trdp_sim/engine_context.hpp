@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <thread>
 #include <unordered_map>
 #include <vector>
@@ -37,6 +38,11 @@ namespace engine
 namespace diag
 {
     class DiagnosticManager;
+}
+
+namespace trdp_sim::trdp
+{
+    class TrdpAdapter;
 }
 
 namespace trdp_sim
@@ -76,6 +82,18 @@ namespace trdp_sim
         // MD sessions (sessionId → runtime)
         std::unordered_map<uint32_t, std::unique_ptr<md::MdSessionRuntime, MdSessionDeleter>> mdSessions;
 
+        struct MulticastGroupState
+        {
+            std::string                ifaceName;
+            std::string                address;
+            std::optional<std::string> nic;
+            std::optional<std::string> hostIp;
+            bool                       joined{false};
+        };
+
+        mutable std::mutex            multicastMtx;
+        std::vector<MulticastGroupState> multicastGroups;
+
         // TRDP session
         TRDP_APP_SESSION_T trdpSession{nullptr};
 
@@ -92,6 +110,9 @@ namespace trdp_sim
 
         // Diagnostics
         diag::DiagnosticManager* diagManager{nullptr};
+
+        // Adapter reference for API utilities
+        trdp::TrdpAdapter* trdpAdapter{nullptr};
 
         ~EngineContext();
     };

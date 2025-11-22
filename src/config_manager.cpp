@@ -208,6 +208,15 @@ namespace config
             return d;
         }
 
+        MulticastGroupConfig parseMulticastGroup(const std::string& path, XMLElement* elem)
+        {
+            MulticastGroupConfig group;
+            group.address = parseString(path, elem, "address", true);
+            if (const char* nic = elem->Attribute("nic"))
+                group.nic = nic;
+            return group;
+        }
+
         PdParameter parsePdParameters(const std::string& path, XMLElement* elem)
         {
             PdParameter p;
@@ -321,12 +330,22 @@ namespace config
             BusInterfaceConfig iface;
             iface.networkId = parseUnsigned<uint32_t>(path, elem, "networkId", true);
             iface.name      = parseString(path, elem, "name", true);
+            if (const char* nic = elem->Attribute("nic"))
+                iface.nic = nic;
             if (const char* hostIp = elem->Attribute("hostIp"))
                 iface.hostIp = hostIp;
 
             iface.trdpProcess = parseTrdpProcess(path, elem->FirstChildElement("TrdpProcess"));
             iface.pdCom       = parsePdCom(path, elem->FirstChildElement("PdCom"));
             iface.mdCom       = parseMdCom(path, elem->FirstChildElement("MdCom"));
+
+            if (auto* mcRoot = elem->FirstChildElement("MulticastGroups"))
+            {
+                for (auto* grp = mcRoot->FirstChildElement("Group"); grp; grp = grp->NextSiblingElement("Group"))
+                {
+                    iface.multicastGroups.push_back(parseMulticastGroup(path, grp));
+                }
+            }
 
             if (auto* tRoot = elem->FirstChildElement("Telegrams"))
             {
@@ -631,6 +650,16 @@ namespace config
                 throw std::runtime_error("MD connectTimeoutUs must be set for TCP on interface " + iface.name);
             if (iface.mdCom.retries > 10)
                 throw std::runtime_error("MD retries out of supported range (0-10) on interface " + iface.name);
+
+            std::unordered_set<std::string> multicastAddrs;
+            for (const auto& group : iface.multicastGroups)
+            {
+                if (group.address.empty())
+                    throw std::runtime_error("Multicast group missing address on interface " + iface.name);
+                if (!multicastAddrs.insert(group.address).second)
+                    throw std::runtime_error("Duplicate multicast group address on interface " + iface.name + ": " +
+                                             group.address);
+            }
 
             for (const auto& tel : iface.telegrams)
             {

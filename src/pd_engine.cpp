@@ -35,6 +35,7 @@ namespace engine::pd
 
         for (const auto& iface : m_ctx.deviceConfig.interfaces)
         {
+            m_adapter.applyMulticastConfig(iface);
             for (const auto& tel : iface.telegrams)
             {
                 if (!tel.pdParam)

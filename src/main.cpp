@@ -86,6 +86,7 @@ int main(int argc, char* argv[])
 
     ctx.pdEngine = &pdEngine;
     ctx.mdEngine = &mdEngine;
+    ctx.trdpAdapter = &adapter;
 
     diag::PcapConfig pcapCfg{};
     if (ctx.deviceConfig.pcap)
@@ -117,7 +118,7 @@ int main(int argc, char* argv[])
     trdp_sim::BackendEngine backend(ctx, pdEngine, mdEngine, diagMgr);
     backend.applyPreloadedConfiguration(ctx.deviceConfig);
 
-    api::BackendApi api(ctx, backend, pdEngine, mdEngine, diagMgr);
+    api::BackendApi api(ctx, backend, pdEngine, mdEngine, adapter, diagMgr);
 
     auth::AuthManager        authMgr;
     realtime::RealtimeHub    hub(ctx, api, diagMgr, authMgr);
@@ -415,6 +416,51 @@ int main(int argc, char* argv[])
             {
                 cb(jsonResponse({{"error", ex.what()}}, k400BadRequest));
             }
+        },
+        {Post});
+
+    app().registerHandler("/api/network/multicast",
+                          [&api, jsonResponse](const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& cb)
+                          { cb(jsonResponse(api.getMulticastStatus())); }, {Get});
+
+    app().registerHandler(
+        "/api/network/multicast/join",
+        [&api, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            auto json = req->getJsonObject();
+            if (!json || !json->isMember("interface") || !json->isMember("group"))
+            {
+                cb(jsonResponse({{"error", "'interface' and 'group' required"}}, k400BadRequest));
+                return;
+            }
+            std::optional<std::string> nic;
+            if (json->isMember("nic"))
+                nic = (*json)["nic"].asString();
+            if (!api.joinMulticastGroup((*json)["interface"].asString(), (*json)["group"].asString(), nic))
+            {
+                cb(jsonResponse({{"error", "join failed"}}, k400BadRequest));
+                return;
+            }
+            cb(jsonResponse(api.getMulticastStatus()));
+        },
+        {Post});
+
+    app().registerHandler(
+        "/api/network/multicast/leave",
+        [&api, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            auto json = req->getJsonObject();
+            if (!json || !json->isMember("interface") || !json->isMember("group"))
+            {
+                cb(jsonResponse({{"error", "'interface' and 'group' required"}}, k400BadRequest));
+                return;
+            }
+            if (!api.leaveMulticastGroup((*json)["interface"].asString(), (*json)["group"].asString()))
+            {
+                cb(jsonResponse({{"error", "leave failed or group not joined"}}, k400BadRequest));
+                return;
+            }
+            cb(jsonResponse(api.getMulticastStatus()));
         },
         {Post});
 

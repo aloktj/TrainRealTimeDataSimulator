@@ -8,6 +8,8 @@
 #include <chrono>
 #include <mutex>
 
+#include <nlohmann/json.hpp>
+
 namespace trdp_sim::trdp
 {
 
@@ -18,6 +20,34 @@ namespace trdp_sim::trdp
         {
             return std::string("{\"comId\":") + std::to_string(comId) + ",\"bytes\":" + std::to_string(len) +
                    ",\"direction\":\"" + dir + "\"}";
+        }
+
+        void updateMulticastState(trdp_sim::EngineContext& ctx, const std::string& ifaceName, const std::string& group,
+                                  const std::optional<std::string>& nic,
+                                  const std::optional<std::string>& hostIp, bool joined)
+        {
+            std::lock_guard<std::mutex> lk(ctx.multicastMtx);
+            auto                        it = std::find_if(ctx.multicastGroups.begin(), ctx.multicastGroups.end(),
+                                                          [&](const auto& g)
+                                                          { return g.ifaceName == ifaceName && g.address == group; });
+            if (it == ctx.multicastGroups.end())
+            {
+                trdp_sim::EngineContext::MulticastGroupState state;
+                state.ifaceName = ifaceName;
+                state.address   = group;
+                state.nic       = nic;
+                state.hostIp    = hostIp;
+                state.joined    = joined;
+                ctx.multicastGroups.push_back(std::move(state));
+            }
+            else
+            {
+                it->joined = joined;
+                if (nic)
+                    it->nic = nic;
+                if (hostIp)
+                    it->hostIp = hostIp;
+            }
         }
 
     } // namespace
@@ -33,6 +63,60 @@ namespace trdp_sim::trdp
     void TrdpAdapter::deinit()
     {
         m_ctx.trdpSession = nullptr;
+    }
+
+    void TrdpAdapter::applyMulticastConfig(const config::BusInterfaceConfig& iface)
+    {
+        for (const auto& group : iface.multicastGroups)
+            joinMulticast(iface.name, group.address, group.nic, iface.hostIp);
+    }
+
+    bool TrdpAdapter::joinMulticast(const std::string& ifaceName, const std::string& group,
+                                    const std::optional<std::string>& nic, const std::optional<std::string>& hostIp)
+    {
+        if (group.empty())
+            return false;
+
+        {
+            std::lock_guard<std::mutex> lk(m_multicastMtx);
+            auto&                       groups = m_multicastMembership[ifaceName];
+            if (groups.find(group) != groups.end())
+                return true;
+            groups.insert(group);
+        }
+
+        updateMulticastState(m_ctx, ifaceName, group, nic, hostIp, true);
+        if (m_ctx.diagManager)
+        {
+            nlohmann::json extra{{"iface", ifaceName}, {"group", group}};
+            if (nic)
+                extra["nic"] = *nic;
+            m_ctx.diagManager->log(diag::Severity::INFO, "TRDP", "Joined multicast group", extra.dump());
+        }
+        return true;
+    }
+
+    bool TrdpAdapter::leaveMulticast(const std::string& ifaceName, const std::string& group)
+    {
+        bool removed{false};
+        {
+            std::lock_guard<std::mutex> lk(m_multicastMtx);
+            auto                        it = m_multicastMembership.find(ifaceName);
+            if (it != m_multicastMembership.end())
+            {
+                removed = it->second.erase(group) > 0;
+                if (it->second.empty())
+                    m_multicastMembership.erase(it);
+            }
+        }
+
+        updateMulticastState(m_ctx, ifaceName, group, std::nullopt, std::nullopt, false);
+        if (removed && m_ctx.diagManager)
+        {
+            nlohmann::json extra{{"iface", ifaceName}, {"group", group}};
+            m_ctx.diagManager->log(diag::Severity::INFO, "TRDP", "Left multicast group", extra.dump());
+        }
+        return removed;
     }
 
     int TrdpAdapter::publishPd(const engine::pd::PdTelegramRuntime& pd)
@@ -157,6 +241,12 @@ namespace trdp_sim::trdp
         std::lock_guard<std::mutex> lk(m_errMtx);
         m_errorCounters.*member += 1;
         m_lastErrorCode = code;
+    }
+
+    std::vector<trdp_sim::EngineContext::MulticastGroupState> TrdpAdapter::getMulticastState() const
+    {
+        std::lock_guard<std::mutex> lk(m_ctx.multicastMtx);
+        return m_ctx.multicastGroups;
     }
 
     std::vector<uint8_t> TrdpAdapter::getLastPdPayload() const

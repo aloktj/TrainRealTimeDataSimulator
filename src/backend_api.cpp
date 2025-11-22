@@ -112,8 +112,8 @@ namespace api
     } // namespace
 
     BackendApi::BackendApi(trdp_sim::EngineContext& ctx, trdp_sim::BackendEngine& backend, engine::pd::PdEngine& pd,
-                           engine::md::MdEngine& md, diag::DiagnosticManager& diag)
-        : m_ctx(ctx), m_pd(pd), m_md(md), m_diag(diag), m_backend(backend)
+                           engine::md::MdEngine& md, trdp::TrdpAdapter& trdpAdapter, diag::DiagnosticManager& diag)
+        : m_ctx(ctx), m_pd(pd), m_md(md), m_diag(diag), m_backend(backend), m_trdp(trdpAdapter)
     {
     }
 
@@ -511,6 +511,8 @@ namespace api
             nlohmann::json ifaceJson;
             ifaceJson["name"]      = iface.name;
             ifaceJson["networkId"] = iface.networkId;
+            if (iface.nic)
+                ifaceJson["nic"] = *iface.nic;
             if (iface.hostIp)
                 ifaceJson["hostIp"] = *iface.hostIp;
             ifaceJson["pdCom"] = {{"port", iface.pdCom.port},
@@ -524,6 +526,14 @@ namespace api
                                     {"connectTimeoutUs", iface.mdCom.connectTimeoutUs},
                                     {"protocol", iface.mdCom.protocol == config::MdComParameter::Protocol::TCP ? "TCP"
                                                                                                                   : "UDP"}};
+
+            for (const auto& grp : iface.multicastGroups)
+            {
+                nlohmann::json grpJson{{"address", grp.address}};
+                if (grp.nic)
+                    grpJson["nic"] = *grp.nic;
+                ifaceJson["multicast"].push_back(grpJson);
+            }
 
             for (const auto& tel : iface.telegrams)
             {
@@ -575,6 +585,45 @@ namespace api
         }
 
         return j;
+    }
+
+    nlohmann::json BackendApi::getMulticastStatus() const
+    {
+        nlohmann::json arr = nlohmann::json::array();
+        std::lock_guard<std::mutex> lk(m_ctx.multicastMtx);
+        for (const auto& entry : m_ctx.multicastGroups)
+        {
+            nlohmann::json item{{"interface", entry.ifaceName}, {"group", entry.address}, {"joined", entry.joined}};
+            if (entry.nic)
+                item["nic"] = *entry.nic;
+            if (entry.hostIp)
+                item["hostIp"] = *entry.hostIp;
+            arr.push_back(std::move(item));
+        }
+        return arr;
+    }
+
+    bool BackendApi::joinMulticastGroup(const std::string& ifaceName, const std::string& group,
+                                        const std::optional<std::string>& nic)
+    {
+        std::optional<std::string> hostIp;
+        std::optional<std::string> resolvedNic = nic;
+        for (const auto& iface : m_ctx.deviceConfig.interfaces)
+        {
+            if (iface.name == ifaceName)
+            {
+                hostIp = iface.hostIp;
+                if (!resolvedNic && iface.nic)
+                    resolvedNic = iface.nic;
+                break;
+            }
+        }
+        return m_trdp.joinMulticast(ifaceName, group, resolvedNic, hostIp);
+    }
+
+    bool BackendApi::leaveMulticastGroup(const std::string& ifaceName, const std::string& group)
+    {
+        return m_trdp.leaveMulticast(ifaceName, group);
     }
 
     nlohmann::json BackendApi::getRecentEvents(std::size_t maxEvents) const
