@@ -1,10 +1,11 @@
 #include "backend_api.hpp"
-#include "config_manager.hpp"
+#include "backend_engine.hpp"
 #include "diagnostic_manager.hpp"
 #include "engine_context.hpp"
 #include "md_engine.hpp"
 #include "pd_engine.hpp"
 #include "trdp_adapter.hpp"
+#include "xml_loader.hpp"
 
 #include <drogon/drogon.h>
 #include <nlohmann/json.hpp>
@@ -71,20 +72,8 @@ int main(int argc, char* argv[])
 
     trdp_sim::EngineContext ctx;
 
-    config::ConfigManager cfgMgr;
-    ctx.deviceConfig = cfgMgr.loadDeviceConfigFromXml(configPath);
-    cfgMgr.validateDeviceConfig(ctx.deviceConfig);
-
-    // Build dataset defs & instances
-    auto defs = cfgMgr.buildDataSetDefs(ctx.deviceConfig);
-    for (auto& def : defs)
-    {
-        ctx.dataSetDefs[def.id] = def;
-        auto inst               = std::make_unique<data::DataSetInstance>();
-        inst->def               = &ctx.dataSetDefs[def.id];
-        inst->values.resize(def.elements.size());
-        ctx.dataSetInstances[def.id] = std::move(inst);
-    }
+    config::XmlConfigurationLoader xmlLoader;
+    ctx.deviceConfig = xmlLoader.load(configPath);
 
     trdp_sim::trdp::TrdpAdapter adapter(ctx);
     adapter.init();
@@ -122,13 +111,10 @@ int main(int argc, char* argv[])
     ctx.diagManager = &diagMgr;
     diagMgr.start();
 
-    pdEngine.initializeFromConfig();
-    mdEngine.initializeFromConfig();
+    trdp_sim::BackendEngine backend(ctx, pdEngine, mdEngine, diagMgr);
+    backend.applyPreloadedConfiguration(ctx.deviceConfig);
 
-    pdEngine.start();
-    mdEngine.start();
-
-    api::BackendApi api(ctx, pdEngine, mdEngine, diagMgr);
+    api::BackendApi api(ctx, backend, pdEngine, mdEngine, diagMgr);
 
     ctx.running = true;
     std::thread trdpThread(
@@ -235,6 +221,10 @@ int main(int argc, char* argv[])
                           [&api, jsonResponse](const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& cb)
                           { cb(jsonResponse(api.getConfigSummary())); }, {Get});
 
+    app().registerHandler("/api/config/detail",
+                          [&api, jsonResponse](const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& cb)
+                          { cb(jsonResponse(api.getConfigDetail())); }, {Get});
+
     app().registerHandler(
         "/api/config/reload",
         [&api, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
@@ -245,8 +235,19 @@ int main(int argc, char* argv[])
                 cb(jsonResponse({{"error", "missing 'path'"}}, k400BadRequest));
                 return;
             }
-            api.reloadConfiguration((*json)["path"].asString());
-            cb(jsonResponse(api.getConfigSummary()));
+            try
+            {
+                api.reloadConfiguration((*json)["path"].asString());
+                cb(jsonResponse(api.getConfigSummary()));
+            }
+            catch (const config::ConfigError& ex)
+            {
+                cb(jsonResponse({{"error", ex.what()}, {"line", ex.line()}, {"file", ex.file()}}, k400BadRequest));
+            }
+            catch (const std::exception& ex)
+            {
+                cb(jsonResponse({{"error", ex.what()}}, k400BadRequest));
+            }
         },
         {Post});
 
