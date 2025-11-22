@@ -99,6 +99,14 @@ ctest --test-dir build --output-on-failure
 Tests are wired into CTest via `gtest_discover_tests`, so `ctest` will pick up any new files under `tests/`. GoogleTest sources are
 automatically fetched by CMake; use `ctest -R <pattern>` to run a subset.
 
+## Deployment artifacts
+
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for end-to-end packaging steps:
+
+- Generate a `.deb` with `cmake --build build --target package` (uses CPack and installs the systemd unit plus defaults).
+- Build a multi-stage Docker image (`docker build`) or a Pi-targeted image (`docker buildx build --platform linux/arm64/v8`).
+- Install/run the packaged systemd service and tune runtime flags in `/etc/default/trdp-simulator`.
+
 ## Contributing
 
 We welcome contributions! A few quick guidelines:
