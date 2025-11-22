@@ -41,17 +41,39 @@ if(NOT nlohmann_json_FOUND)
 endif()
 
 # 4) TRDP library from TCNopen
-# Here we declare an imported target 'trdp' pointing to a static library libtrdp.a.
-# Adjust the path to wherever you build/install TRDP.
-set(TRDP_LIB_PATH "/usr/local/lib/libtrdp.a" CACHE FILEPATH "Path to TCNopen TRDP static library")
+# Discover headers & library with actionable error messages so users know what to set.
+set(TRDP_INCLUDE_DIR "" CACHE PATH "Path to TRDP headers (e.g. containing trdp_if_light.h)")
+set(TRDP_LIB_PATH "" CACHE FILEPATH "Path to TRDP static/shared library (e.g. libtrdp.a)")
+
+find_path(TRDP_INCLUDE_DIR_FOUND
+    NAMES trdp_if_light.h trdp_if.h tau_api.h
+    PATHS
+        ${TRDP_INCLUDE_DIR}
+        /usr/local/include
+        /usr/include
+)
+
+if(NOT TRDP_INCLUDE_DIR_FOUND)
+    message(FATAL_ERROR "TRDP headers not found. Set TRDP_INCLUDE_DIR to your TRDP include folder (contains trdp_if_light.h/tau_api.h)." )
+endif()
+
+find_library(TRDP_LIB_FOUND
+    NAMES trdp
+    PATHS
+        ${TRDP_LIB_PATH}
+        /usr/local/lib
+        /usr/lib
+)
+
+if(NOT TRDP_LIB_FOUND)
+    message(FATAL_ERROR "TRDP library not found. Set TRDP_LIB_PATH to your libtrdp.a or shared library (built from TCNopen TRDP)." )
+endif()
 
 add_library(trdp STATIC IMPORTED)
 set_target_properties(trdp PROPERTIES
-    IMPORTED_LOCATION "${TRDP_LIB_PATH}"
+    IMPORTED_LOCATION "${TRDP_LIB_FOUND}"
+    INTERFACE_INCLUDE_DIRECTORIES "${TRDP_INCLUDE_DIR_FOUND}"
 )
-
-# If TRDP needs additional include dirs:
-set(TRDP_INCLUDE_DIR "/usr/local/include/trdp" CACHE PATH "Path to TRDP headers")
 
 # -------------------------
 # Sources and includes
@@ -62,7 +84,7 @@ set(TRDP_SIM_SRC_DIR     "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 include_directories(
     ${TRDP_SIM_INCLUDE_DIR}
-    ${TRDP_INCLUDE_DIR}
+    ${TRDP_INCLUDE_DIR_FOUND}
 )
 
 # You can list sources explicitly or glob; explicit is more robust:
@@ -85,7 +107,7 @@ add_executable(trdp-simulator
 target_include_directories(trdp-simulator
     PUBLIC
         ${TRDP_SIM_INCLUDE_DIR}
-        ${TRDP_INCLUDE_DIR}
+        ${TRDP_INCLUDE_DIR_FOUND}
 )
 
 # -------------------------

@@ -38,6 +38,9 @@ int main(int argc, char* argv[])
     engine::pd::PdEngine pdEngine(ctx, adapter);
     engine::md::MdEngine mdEngine(ctx, adapter);
 
+    ctx.pdEngine = &pdEngine;
+    ctx.mdEngine = &mdEngine;
+
     pdEngine.initializeFromConfig();
     mdEngine.initializeFromConfig();
 
