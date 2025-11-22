@@ -70,6 +70,9 @@ namespace diag
         double      maxCycleJitterUs{0.0};
         double      maxInterarrivalUs{0.0};
         uint64_t    activeTimeouts{0};
+        uint64_t    stressBursts{0};
+        uint64_t    redundancySwitches{0};
+        uint64_t    busFailureDrops{0};
         std::chrono::system_clock::time_point latestRxWall{};
         std::chrono::system_clock::time_point latestTxWall{};
     };

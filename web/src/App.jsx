@@ -9,6 +9,8 @@ import XmlViewer from './components/XmlViewer';
 import LogViewer from './components/LogViewer';
 import InterfaceDiagnostics from './components/InterfaceDiagnostics';
 import EventBrowser from './components/EventBrowser';
+import SimulationControls from './components/SimulationControls';
+import TimeSyncPanel from './components/TimeSyncPanel';
 import { useAuth } from './hooks/useAuth';
 import './styles/theme.css';
 
@@ -45,6 +47,8 @@ export default function App() {
           <LogViewer />
           <EventBrowser />
           <InterfaceDiagnostics />
+          <SimulationControls />
+          <TimeSyncPanel />
         </div>
       </main>
     </div>

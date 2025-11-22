@@ -432,6 +432,9 @@ namespace diag
             snapshot.pd.txCount += pdPtr->stats.txCount;
             snapshot.pd.rxCount += pdPtr->stats.rxCount;
             snapshot.pd.timeoutCount += pdPtr->stats.timeoutCount;
+            snapshot.pd.stressBursts += pdPtr->stats.stressBursts;
+            snapshot.pd.redundancySwitches += pdPtr->stats.redundancySwitches;
+            snapshot.pd.busFailureDrops += pdPtr->stats.busFailureDrops;
             snapshot.pd.maxCycleJitterUs = std::max(snapshot.pd.maxCycleJitterUs, pdPtr->stats.lastCycleJitterUs);
             snapshot.pd.maxInterarrivalUs =
                 std::max(snapshot.pd.maxInterarrivalUs, pdPtr->stats.lastInterarrivalUs);
@@ -487,8 +490,10 @@ namespace diag
             << ", diag=" << snapshot.threads.diagThreadRunning << ", trdp=" << snapshot.threads.trdpThreadRunning
             << ") pd(tx=" << snapshot.pd.txCount << ", rx=" << snapshot.pd.rxCount
             << ", timeout=" << snapshot.pd.timeoutCount << ", active_to=" << snapshot.pd.activeTimeouts
-            << ", jitter(us)=" << snapshot.pd.maxCycleJitterUs << ", inter(us)=" << snapshot.pd.maxInterarrivalUs
-            << ") md(tx=" << snapshot.md.txCount << ", rx=" << snapshot.md.rxCount
+            << ", bursts=" << snapshot.pd.stressBursts << ", switches=" << snapshot.pd.redundancySwitches
+            << ", bus_drop=" << snapshot.pd.busFailureDrops << ", jitter(us)=" << snapshot.pd.maxCycleJitterUs
+            << ", inter(us)=" << snapshot.pd.maxInterarrivalUs << ") md(tx=" << snapshot.md.txCount
+            << ", rx=" << snapshot.md.rxCount
             << ", timeout=" << snapshot.md.timeoutCount << ", retry=" << snapshot.md.retryCount
             << ", lat(us)=" << snapshot.md.maxLatencyUs << ") trdp(errors=" << snapshot.trdp.eventLoopErrors << ")";
         log(Severity::DEBUG, "Diagnostics", oss.str());

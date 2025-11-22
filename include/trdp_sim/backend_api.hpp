@@ -77,6 +77,8 @@ namespace api
         void           setStressMode(const trdp_sim::SimulationControls::StressMode& stress);
         void           setRedundancySimulation(const trdp_sim::SimulationControls::RedundancySimulation& sim);
         void           setTimeSyncOffsets(const trdp_sim::SimulationControls::TimeSyncOffsets& offsets);
+        nlohmann::json getTimeSyncState() const;
+        nlohmann::json convertTrdpTimestamp(uint64_t seconds, uint32_t nanoseconds) const;
         bool           registerVirtualInstance(const std::string& name, const std::string& path, std::string* err = nullptr);
         bool           activateVirtualInstance(const std::string& name, std::string* err = nullptr);
         nlohmann::json listVirtualInstances() const;

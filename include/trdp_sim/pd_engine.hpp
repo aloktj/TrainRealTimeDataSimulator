@@ -29,6 +29,9 @@ namespace engine::pd
         uint64_t                              rxCount{0};
         uint64_t                              timeoutCount{0};
         uint64_t                              lastSeqNumber{0};
+        uint64_t                              stressBursts{0};
+        uint64_t                              busFailureDrops{0};
+        uint64_t                              redundancySwitches{0};
         std::chrono::steady_clock::time_point lastTxTime{};
         std::chrono::steady_clock::time_point lastRxTime{};
         double                                lastCycleJitterUs{0.0};

@@ -287,7 +287,10 @@ namespace trdp_sim::trdp
             std::lock_guard<std::mutex> lk(m_ctx.simulation.mtx);
             redundancy = m_ctx.simulation.redundancy;
             if (redundancy.forceSwitch && !pd.pubChannels.empty())
+            {
                 idx = (idx + 1) % pd.pubChannels.size();
+                pd.stats.redundancySwitches++;
+            }
         }
 
         auto sendOnce = [&](engine::pd::PdTelegramRuntime::PublicationChannel& ch, size_t channelIdx) -> int {
@@ -297,6 +300,7 @@ namespace trdp_sim::trdp
                 {
                     m_ctx.diagManager->log(diag::Severity::WARN, "PD", "Dropping PD due to simulated bus failure");
                 }
+                pd.stats.busFailureDrops++;
                 return -1;
             }
             if (!ch.handle)
