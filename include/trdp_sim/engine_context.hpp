@@ -108,6 +108,9 @@ namespace trdp_sim
         // Global running flag
         bool running{false};
 
+        // Path of the active XML configuration on disk
+        std::string configPath;
+
         // Diagnostics
         diag::DiagnosticManager* diagManager{nullptr};
 

@@ -145,6 +145,10 @@ namespace diag
         void updatePcapConfig(const PcapConfig& cfg);
         void writePacketToPcap(const uint8_t* data, std::size_t len, bool isTx);
 
+        std::optional<std::filesystem::path> logFilePath() const { return m_logCfg.filePath ? m_logPath : std::optional<std::filesystem::path>{}; }
+        std::optional<std::filesystem::path> pcapFilePath() const { return m_pcapCfg.filePath ? m_pcapPath : std::optional<std::filesystem::path>{}; }
+        std::string                          formatEventLine(const Event& ev) const;
+
       private:
         void        workerThreadFn();
         void        rotateLogIfNeeded();

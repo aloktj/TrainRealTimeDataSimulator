@@ -14,6 +14,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <filesystem>
 #include <optional>
 #include <string>
 
@@ -77,6 +78,7 @@ int main(int argc, char* argv[])
 
     config::XmlConfigurationLoader xmlLoader;
     ctx.deviceConfig = xmlLoader.load(configPath);
+    ctx.configPath   = configPath;
 
     trdp_sim::trdp::TrdpAdapter adapter(ctx);
     adapter.init();
@@ -419,6 +421,53 @@ int main(int argc, char* argv[])
         },
         {Post});
 
+    app().registerHandler(
+        "/api/config/backup",
+        [&api, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            auto path = req->getParameter("path");
+            if (!path.empty())
+            {
+                if (!api.backupConfiguration(path))
+                {
+                    cb(jsonResponse({{"error", "backup failed"}}, k500InternalServerError));
+                    return;
+                }
+                cb(jsonResponse({{"backup", path}}));
+                return;
+            }
+
+            auto cfgPath = api.getConfigPath();
+            if (cfgPath && std::filesystem::exists(*cfgPath))
+            {
+                auto resp = HttpResponse::newFileResponse(cfgPath->string());
+                resp->addHeader("Content-Disposition", "attachment; filename=trdp_config_backup.xml");
+                cb(resp);
+                return;
+            }
+            cb(jsonResponse({{"error", "no configuration path"}}, k400BadRequest));
+        },
+        {Get});
+
+    app().registerHandler(
+        "/api/config/restore",
+        [&api, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            auto json = req->getJsonObject();
+            if (!json || !json->isMember("path"))
+            {
+                cb(jsonResponse({{"error", "missing 'path'"}}, k400BadRequest));
+                return;
+            }
+            if (!api.restoreConfiguration((*json)["path"].asString()))
+            {
+                cb(jsonResponse({{"error", "restore failed"}}, k400BadRequest));
+                return;
+            }
+            cb(jsonResponse(api.getConfigSummary()));
+        },
+        {Post});
+
     app().registerHandler("/api/network/multicast",
                           [&api, jsonResponse](const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& cb)
                           { cb(jsonResponse(api.getMulticastStatus())); }, {Get});
@@ -494,6 +543,63 @@ int main(int argc, char* argv[])
             auto        maxStr    = req->getParameter("max");
             std::size_t maxEvents = maxStr.empty() ? 50u : static_cast<std::size_t>(std::stoul(maxStr));
             cb(jsonResponse(api.getRecentEvents(maxEvents)));
+        },
+        {Get});
+
+    app().registerHandler(
+        "/api/diag/log/export",
+        [&api](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            auto        maxStr    = req->getParameter("max");
+            std::size_t maxEvents = maxStr.empty() ? 200u : static_cast<std::size_t>(std::stoul(maxStr));
+            auto        format    = req->getParameter("format");
+            if (format == "json")
+            {
+                auto resp = HttpResponse::newHttpResponse();
+                resp->setStatusCode(k200OK);
+                resp->setContentTypeCode(CT_APPLICATION_JSON);
+                resp->setBody(api.getRecentEvents(maxEvents).dump());
+                cb(resp);
+                return;
+            }
+
+            auto resp = HttpResponse::newHttpResponse();
+            resp->setStatusCode(k200OK);
+            resp->setContentTypeCode(CT_TEXT_PLAIN);
+            resp->setBody(api.exportRecentEventsText(maxEvents));
+            cb(resp);
+        },
+        {Get});
+
+    app().registerHandler(
+        "/api/diag/pcap/export",
+        [&api, jsonResponse](const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            auto path = api.getPcapCapturePath();
+            if (!path || !std::filesystem::exists(*path))
+            {
+                cb(jsonResponse({{"error", "pcap not available"}}, k404NotFound));
+                return;
+            }
+            auto resp = HttpResponse::newFileResponse(path->string());
+            resp->addHeader("Content-Disposition", "attachment; filename=trdp_capture.pcap");
+            cb(resp);
+        },
+        {Get});
+
+    app().registerHandler(
+        "/api/diag/log/file",
+        [&api, jsonResponse](const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            auto path = api.getLogFilePath();
+            if (!path || !std::filesystem::exists(*path))
+            {
+                cb(jsonResponse({{"error", "log not available"}}, k404NotFound));
+                return;
+            }
+            auto resp = HttpResponse::newFileResponse(path->string());
+            resp->addHeader("Content-Disposition", "attachment; filename=trdp_logs.txt");
+            cb(resp);
         },
         {Get});
 

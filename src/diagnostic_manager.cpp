@@ -366,8 +366,7 @@ namespace diag
 
     void DiagnosticManager::persistEvent(const Event& ev)
     {
-        const auto line = formatTimestamp(ev.timestamp) + " [" + severityToString(ev.severity) + "] " + ev.component +
-                          ": " + ev.message;
+        const auto line = formatEventLine(ev);
 
         {
             std::lock_guard<std::mutex> cfgLock(m_logCfgMtx);
@@ -502,6 +501,12 @@ namespace diag
         std::ostringstream oss;
         oss << std::put_time(&tmStruct, "%F %T");
         return oss.str();
+    }
+
+    std::string DiagnosticManager::formatEventLine(const Event& ev) const
+    {
+        return formatTimestamp(ev.timestamp) + " [" + severityToString(ev.severity) + "] " + ev.component +
+               ": " + ev.message;
     }
 
 } // namespace diag
