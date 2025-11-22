@@ -50,6 +50,7 @@ public:
                                 const std::string& message,
                                 const std::optional<std::string>& extraJson = std::nullopt);
     void enablePcap(bool enable);
+    nlohmann::json getDiagnosticsMetrics() const;
 
 private:
     trdp_sim::EngineContext& m_ctx;

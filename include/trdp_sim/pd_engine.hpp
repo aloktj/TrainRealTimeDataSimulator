@@ -61,6 +61,8 @@ public:
     // Called from TRDP adapter:
     void onPdReceived(uint32_t comId, const uint8_t* data, std::size_t len);
 
+    bool isRunning() const { return m_running.load(); }
+
 private:
     void runPublisherLoop();
 

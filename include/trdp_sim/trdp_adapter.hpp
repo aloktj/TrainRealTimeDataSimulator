@@ -2,11 +2,24 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <vector>
+#include <mutex>
 
 #include "engine_context.hpp"
 
 namespace trdp_sim::trdp {
+
+struct TrdpErrorCounters
+{
+    uint64_t initErrors {0};
+    uint64_t publishErrors {0};
+    uint64_t subscribeErrors {0};
+    uint64_t pdSendErrors {0};
+    uint64_t mdRequestErrors {0};
+    uint64_t mdReplyErrors {0};
+    uint64_t eventLoopErrors {0};
+};
 
 class TrdpAdapter
 {
@@ -32,8 +45,16 @@ public:
     // Event loop integration
     void processOnce(); // e.g. called periodically by main loop
 
+    TrdpErrorCounters getErrorCounters() const;
+    std::optional<uint32_t> getLastErrorCode() const;
+
 private:
     EngineContext& m_ctx;
+    mutable std::mutex m_errMtx;
+    TrdpErrorCounters m_errorCounters {};
+    std::optional<uint32_t> m_lastErrorCode;
+
+    void recordError(uint32_t code, uint64_t TrdpErrorCounters::*member);
 };
 
 } // namespace trdp_sim::trdp

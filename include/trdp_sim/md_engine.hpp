@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <thread>
@@ -83,6 +84,8 @@ public:
 
     std::optional<MdSessionRuntime*> getSession(uint32_t sessionId);
     static const char* stateToString(MdSessionState state);
+    void forEachSession(const std::function<void(const MdSessionRuntime&)>& fn);
+    bool isRunning() const { return m_running.load(); }
 
 private:
     void buildSessionsFromConfig();

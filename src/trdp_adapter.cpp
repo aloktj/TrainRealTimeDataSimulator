@@ -3,7 +3,9 @@
 #include <arpa/inet.h>
 #include <chrono>
 #include <cstring>
+#include <errno.h>
 #include <iostream>
+#include <mutex>
 #include <optional>
 #include <vector>
 #include <sys/select.h>
@@ -66,6 +68,7 @@ bool TrdpAdapter::init()
 
     TRDP_ERR_T err = tlc_init(&m_ctx.trdpSession, &memCfg, nullptr, &pdCfg, &mdCfg, &processCfg);
     if (err != TRDP_NO_ERR) {
+        recordError(static_cast<uint32_t>(err), &TrdpErrorCounters::initErrors);
         std::cerr << "TRDP tlc_init failed: " << err << std::endl;
         return false;
     }
@@ -110,6 +113,7 @@ int TrdpAdapter::publishPd(const engine::pd::PdTelegramRuntime& pd)
         0);
 
     if (err != TRDP_NO_ERR) {
+        recordError(static_cast<uint32_t>(err), &TrdpErrorCounters::publishErrors);
         std::cerr << "tlp_publish failed for COM ID " << pd.cfg->comId << " error=" << err << std::endl;
         return -static_cast<int>(err);
     }
@@ -143,6 +147,7 @@ int TrdpAdapter::subscribePd(engine::pd::PdTelegramRuntime& pd)
         this);
 
     if (err != TRDP_NO_ERR) {
+        recordError(static_cast<uint32_t>(err), &TrdpErrorCounters::subscribeErrors);
         std::cerr << "tlp_subscribe failed for COM ID " << pd.cfg->comId << " error=" << err << std::endl;
         return -static_cast<int>(err);
     }
@@ -167,6 +172,7 @@ int TrdpAdapter::sendPdData(const engine::pd::PdTelegramRuntime& pd, const std::
         static_cast<UINT32>(payload.size()));
 
     if (err != TRDP_NO_ERR) {
+        recordError(static_cast<uint32_t>(err), &TrdpErrorCounters::pdSendErrors);
         std::cerr << "tlp_put failed for COM ID " << pd.cfg->comId << " error=" << err << std::endl;
         return -static_cast<int>(err);
     }
@@ -219,6 +225,7 @@ int TrdpAdapter::sendMdRequest(engine::md::MdSessionRuntime& session)
         0);
 
     if (err != TRDP_NO_ERR) {
+        recordError(static_cast<uint32_t>(err), &TrdpErrorCounters::mdRequestErrors);
         std::cerr << "tlm_request failed for session " << session.sessionId << " error=" << err << std::endl;
         return -static_cast<int>(err);
     }
@@ -249,6 +256,7 @@ int TrdpAdapter::sendMdReply(engine::md::MdSessionRuntime& session)
         0);
 
     if (err != TRDP_NO_ERR) {
+        recordError(static_cast<uint32_t>(err), &TrdpErrorCounters::mdReplyErrors);
         std::cerr << "tlm_reply failed for session " << session.sessionId << " error=" << err << std::endl;
         return -static_cast<int>(err);
     }
@@ -285,8 +293,10 @@ void TrdpAdapter::processOnce()
 
     FD_ZERO(&rfds);
 
-    if (tlc_getInterval(m_ctx.trdpSession, &interval, &rfds, &noOfDesc) != TRDP_NO_ERR)
+    if (tlc_getInterval(m_ctx.trdpSession, &interval, &rfds, &noOfDesc) != TRDP_NO_ERR) {
+        recordError(0, &TrdpErrorCounters::eventLoopErrors);
         return;
+    }
 
     struct timeval tv;
     tv.tv_sec = interval.tvSec;
@@ -295,10 +305,32 @@ void TrdpAdapter::processOnce()
     int rv = select(noOfDesc + 1, &rfds, nullptr, nullptr, &tv);
     if (rv < 0) {
         std::perror("select");
+        recordError(errno, &TrdpErrorCounters::eventLoopErrors);
         return;
     }
 
-    tlc_process(m_ctx.trdpSession, &rfds, nullptr);
+    auto err = tlc_process(m_ctx.trdpSession, &rfds, nullptr);
+    if (err != TRDP_NO_ERR)
+        recordError(static_cast<uint32_t>(err), &TrdpErrorCounters::eventLoopErrors);
+}
+
+TrdpErrorCounters TrdpAdapter::getErrorCounters() const
+{
+    std::lock_guard<std::mutex> lk(m_errMtx);
+    return m_errorCounters;
+}
+
+std::optional<uint32_t> TrdpAdapter::getLastErrorCode() const
+{
+    std::lock_guard<std::mutex> lk(m_errMtx);
+    return m_lastErrorCode;
+}
+
+void TrdpAdapter::recordError(uint32_t code, uint64_t TrdpErrorCounters::*member)
+{
+    std::lock_guard<std::mutex> lk(m_errMtx);
+    m_errorCounters.*member += 1;
+    m_lastErrorCode = code;
 }
 
 } // namespace trdp_sim::trdp
