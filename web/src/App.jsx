@@ -8,6 +8,7 @@ import DatasetEditor from './components/DatasetEditor';
 import XmlViewer from './components/XmlViewer';
 import LogViewer from './components/LogViewer';
 import InterfaceDiagnostics from './components/InterfaceDiagnostics';
+import EventBrowser from './components/EventBrowser';
 import { useAuth } from './hooks/useAuth';
 import './styles/theme.css';
 
@@ -42,6 +43,7 @@ export default function App() {
           <DatasetEditor />
           <XmlViewer />
           <LogViewer />
+          <EventBrowser />
           <InterfaceDiagnostics />
         </div>
       </main>

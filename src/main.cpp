@@ -870,6 +870,37 @@ int main(int argc, char* argv[])
         {Get});
 
     app().registerHandler(
+        "/api/diag/log/export",
+        [&api, &requireRole, &sanitizePath, jsonResponse](const HttpRequestPtr& req,
+                                                          std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            if (!requireRole(req, cb, auth::Role::Developer))
+                return;
+            auto json = req->getJsonObject();
+            if (!json || !json->isMember("path"))
+            {
+                cb(jsonResponse({{"error", "path required"}}, k400BadRequest));
+                return;
+            }
+            auto path = sanitizePath((*json)["path"].asString());
+            if (!path)
+            {
+                cb(jsonResponse({{"error", "invalid path"}}, k400BadRequest));
+                return;
+            }
+            auto maxEvents = static_cast<std::size_t>(json->get("max", 200).asUInt());
+            auto format    = json->get("format", "text").asString();
+            auto asJson    = format == "json";
+            if (!api.exportRecentEventsToFile(maxEvents, asJson, *path))
+            {
+                cb(jsonResponse({{"error", "export failed"}}, k500InternalServerError));
+                return;
+            }
+            cb(jsonResponse({{"exported", path->string()}, {"format", asJson ? "json" : "text"}}));
+        },
+        {Post});
+
+    app().registerHandler(
         "/api/diag/pcap/export",
         [&api, &requireRole, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
         {
@@ -886,6 +917,34 @@ int main(int argc, char* argv[])
             cb(resp);
         },
         {Get});
+
+    app().registerHandler(
+        "/api/diag/pcap/export",
+        [&api, &requireRole, &sanitizePath, jsonResponse](const HttpRequestPtr& req,
+                                                          std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            if (!requireRole(req, cb, auth::Role::Developer))
+                return;
+            auto json = req->getJsonObject();
+            if (!json || !json->isMember("path"))
+            {
+                cb(jsonResponse({{"error", "path required"}}, k400BadRequest));
+                return;
+            }
+            auto path = sanitizePath((*json)["path"].asString());
+            if (!path)
+            {
+                cb(jsonResponse({{"error", "invalid path"}}, k400BadRequest));
+                return;
+            }
+            if (!api.exportPcapCapture(*path))
+            {
+                cb(jsonResponse({{"error", "pcap export failed"}}, k500InternalServerError));
+                return;
+            }
+            cb(jsonResponse({{"exported", path->string()}, {"format", "pcap"}}));
+        },
+        {Post});
 
     app().registerHandler(
         "/api/diag/log/file",

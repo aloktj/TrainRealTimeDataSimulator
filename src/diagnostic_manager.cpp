@@ -285,7 +285,11 @@ namespace diag
             }
 
             if (std::filesystem::exists(m_pcapPath))
-                std::filesystem::rename(m_pcapPath, m_pcapPath.string() + ".1");
+            {
+                auto rotated = m_pcapPath.string() + ".1";
+                std::filesystem::rename(m_pcapPath, rotated);
+                shipArtifact(rotated, m_pcapCfg.exportTarget, "pcap");
+            }
 
             m_pcapBytesWritten = 0;
             m_pcapFile.open(m_pcapPath, std::ios::binary | std::ios::out | std::ios::trunc);
@@ -315,6 +319,30 @@ namespace diag
 
         Header hdr{};
         m_pcapFile.write(reinterpret_cast<const char*>(&hdr), sizeof(hdr));
+    }
+
+    void DiagnosticManager::shipArtifact(const std::filesystem::path& source,
+                                         const std::optional<std::string>& target,
+                                         const std::string& prefix)
+    {
+        if (!target || target->empty())
+            return;
+
+        try
+        {
+            auto destDir = std::filesystem::path(*target);
+            std::filesystem::create_directories(destDir);
+            auto stamp = std::chrono::duration_cast<std::chrono::seconds>(
+                             std::chrono::system_clock::now().time_since_epoch())
+                             .count();
+            auto dest = destDir / (prefix + "_" + std::to_string(stamp) + source.extension().string());
+            std::filesystem::copy_file(source, dest, std::filesystem::copy_options::overwrite_existing);
+            log(Severity::INFO, "Diagnostics", "Exported artifact to " + dest.string());
+        }
+        catch (const std::exception& ex)
+        {
+            log(Severity::WARN, "Diagnostics", std::string("Failed to export artifact: ") + ex.what());
+        }
     }
 
     void DiagnosticManager::workerThreadFn()
@@ -360,6 +388,7 @@ namespace diag
         if (std::filesystem::exists(rotated))
             std::filesystem::remove(rotated);
         std::filesystem::rename(m_logPath, rotated);
+        shipArtifact(rotated, m_logCfg.exportTarget, "log");
         m_logFile.close();
         m_logFile.open(m_logPath, std::ios::out | std::ios::trunc);
     }
