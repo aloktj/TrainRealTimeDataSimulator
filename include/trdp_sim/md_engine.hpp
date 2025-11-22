@@ -10,98 +10,111 @@
 
 #include "engine_context.hpp"
 
-namespace trdp_sim::trdp { class TrdpAdapter; }
-
-namespace engine::md {
-
-enum class MdRole {
-    REQUESTER,
-    RESPONDER
-};
-
-enum class MdProtocol {
-    UDP,
-    TCP
-};
-
-enum class MdSessionState {
-    IDLE,
-    REQUEST_SENT,
-    WAITING_REPLY,
-    REPLY_RECEIVED,
-    WAITING_ACK,
-    TIMEOUT,
-    ERROR
-};
-
-struct MdRuntimeStats {
-    uint64_t txCount {0};
-    uint64_t rxCount {0};
-    uint64_t retryCount {0};
-    uint64_t timeoutCount {0};
-    std::chrono::steady_clock::time_point lastTxTime {};
-    std::chrono::steady_clock::time_point lastRxTime {};
-};
-
-struct MdSessionRuntime {
-    uint32_t sessionId {0};
-    uint32_t comId {0};
-    MdRole role {MdRole::REQUESTER};
-    MdProtocol proto {MdProtocol::UDP};
-    const config::TelegramConfig* telegram {nullptr};
-    const config::BusInterfaceConfig* iface {nullptr};
-    const config::MdComParameter* mdCom {nullptr};
-    data::DataSetInstance* requestData {nullptr};
-    data::DataSetInstance* responseData {nullptr};
-    MdSessionState state {MdSessionState::IDLE};
-    uint32_t retryCount {0};
-    TRDP_LR_T mdHandle {0};
-    std::chrono::steady_clock::time_point lastStateChange {};
-    std::chrono::steady_clock::time_point deadline {};
-    MdRuntimeStats stats {};
-    std::mutex mtx;
-};
-
-struct MdTelegramBinding {
-    const config::TelegramConfig* telegram {nullptr};
-    const config::BusInterfaceConfig* iface {nullptr};
-};
-
-class MdEngine
+namespace trdp_sim::trdp
 {
-public:
-    MdEngine(trdp_sim::EngineContext& ctx, trdp_sim::trdp::TrdpAdapter& adapter);
+    class TrdpAdapter;
+}
 
-    void initializeFromConfig();
-    void start();
-    void stop();
+namespace engine::md
+{
 
-    uint32_t createRequestSession(uint32_t comId);
-    void sendRequest(uint32_t sessionId);
+    enum class MdRole
+    {
+        REQUESTER,
+        RESPONDER
+    };
 
-    // Called by TrdpAdapter:
-    void onMdIndication(uint32_t sessionId, const uint8_t* data, std::size_t len);
+    enum class MdProtocol
+    {
+        UDP,
+        TCP
+    };
 
-    std::optional<MdSessionRuntime*> getSession(uint32_t sessionId);
-    static const char* stateToString(MdSessionState state);
-    void forEachSession(const std::function<void(const MdSessionRuntime&)>& fn);
-    bool isRunning() const { return m_running.load(); }
+    enum class MdSessionState
+    {
+        IDLE,
+        REQUEST_SENT,
+        WAITING_REPLY,
+        REPLY_RECEIVED,
+        WAITING_ACK,
+        TIMEOUT,
+        ERROR
+    };
 
-private:
-    void buildSessionsFromConfig();
-    void runLoop();
-    void handleTimeouts();
-    void dispatchRequestLocked(MdSessionRuntime& session);
-    void dispatchReplyLocked(MdSessionRuntime& session);
+    struct MdRuntimeStats
+    {
+        uint64_t                              txCount{0};
+        uint64_t                              rxCount{0};
+        uint64_t                              retryCount{0};
+        uint64_t                              timeoutCount{0};
+        std::chrono::steady_clock::time_point lastTxTime{};
+        std::chrono::steady_clock::time_point lastRxTime{};
+    };
 
-    trdp_sim::EngineContext& m_ctx;
-    trdp_sim::trdp::TrdpAdapter& m_adapter;
+    struct MdSessionRuntime
+    {
+        uint32_t                              sessionId{0};
+        uint32_t                              comId{0};
+        MdRole                                role{MdRole::REQUESTER};
+        MdProtocol                            proto{MdProtocol::UDP};
+        const config::TelegramConfig*         telegram{nullptr};
+        const config::BusInterfaceConfig*     iface{nullptr};
+        const config::MdComParameter*         mdCom{nullptr};
+        data::DataSetInstance*                requestData{nullptr};
+        data::DataSetInstance*                responseData{nullptr};
+        MdSessionState                        state{MdSessionState::IDLE};
+        uint32_t                              retryCount{0};
+        TRDP_LR_T                             mdHandle{0};
+        std::chrono::steady_clock::time_point lastStateChange{};
+        std::chrono::steady_clock::time_point deadline{};
+        MdRuntimeStats                        stats{};
+        std::mutex                            mtx;
+    };
 
-    std::mutex m_sessionsMtx;
-    std::unordered_map<uint32_t, MdTelegramBinding> m_telegramByComId;
-    uint32_t m_nextSessionId {1};
-    std::atomic<bool> m_running {false};
-    std::thread m_thread; // Optional MD handling loop
-};
+    struct MdTelegramBinding
+    {
+        const config::TelegramConfig*     telegram{nullptr};
+        const config::BusInterfaceConfig* iface{nullptr};
+    };
+
+    class MdEngine
+    {
+      public:
+        MdEngine(trdp_sim::EngineContext& ctx, trdp_sim::trdp::TrdpAdapter& adapter);
+
+        void initializeFromConfig();
+        void start();
+        void stop();
+
+        uint32_t createRequestSession(uint32_t comId);
+        void     sendRequest(uint32_t sessionId);
+
+        // Called by TrdpAdapter:
+        void onMdIndication(uint32_t sessionId, const uint8_t* data, std::size_t len);
+
+        std::optional<MdSessionRuntime*> getSession(uint32_t sessionId);
+        static const char*               stateToString(MdSessionState state);
+        void                             forEachSession(const std::function<void(const MdSessionRuntime&)>& fn);
+        bool                             isRunning() const
+        {
+            return m_running.load();
+        }
+
+      private:
+        void buildSessionsFromConfig();
+        void runLoop();
+        void handleTimeouts();
+        void dispatchRequestLocked(MdSessionRuntime& session);
+        void dispatchReplyLocked(MdSessionRuntime& session);
+
+        trdp_sim::EngineContext&     m_ctx;
+        trdp_sim::trdp::TrdpAdapter& m_adapter;
+
+        std::mutex                                      m_sessionsMtx;
+        std::unordered_map<uint32_t, MdTelegramBinding> m_telegramByComId;
+        uint32_t                                        m_nextSessionId{1};
+        std::atomic<bool>                               m_running{false};
+        std::thread                                     m_thread; // Optional MD handling loop
+    };
 
 } // namespace engine::md

@@ -1,5 +1,8 @@
 # TrainRealTimeDataSimulator
 
+[![CI](https://github.com/TrainRealTimeDataSimulator/TrainRealTimeDataSimulator/actions/workflows/ci.yml/badge.svg)](https://github.com/TrainRealTimeDataSimulator/TrainRealTimeDataSimulator/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A lightweight TRDP (Train Real-time Data Protocol) simulator that exercises PD and MD flows, parses TRDP XML configuration, and exposes an HTTP API for controlling telegrams, datasets, and diagnostics.
 
 ## Prerequisites
@@ -89,3 +92,12 @@ ctest --test-dir build --output-on-failure
 
 Tests are wired into CTest via `gtest_discover_tests`, so `ctest` will pick up any new files under `tests/`. GoogleTest sources are
 automatically fetched by CMake; use `ctest -R <pattern>` to run a subset.
+
+## Contributing
+
+We welcome contributions! A few quick guidelines:
+
+- Keep code formatted with `clang-format` (configuration in `.clang-format`). You can run `clang-format -i $(find src include tests -name '*.cpp' -o -name '*.hpp')` before committing.
+- Use stubbed TRDP for CI-friendly builds: `cmake -S . -B build -GNinja -DTRDP_USE_STUBS=ON -DTRDP_ENABLE_TESTS=ON -DTRDP_WARNINGS_AS_ERRORS=ON`.
+- Run the test suite via `ctest --test-dir build --output-on-failure` before opening a pull request.
+- Include context in PR descriptions (what changed, why, and any testing performed).

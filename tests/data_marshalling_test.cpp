@@ -10,11 +10,12 @@ using trdp_sim::util::unmarshalDataToDataSet;
 
 TEST(DataMarshalling, MarshalsAndUnmarshalsWithPadding)
 {
-    EngineContext ctx;
+    EngineContext    ctx;
     data::DataSetDef def;
-    def.id = 1;
-    def.name = "Test";
-    def.elements = {{"a", data::ElementType::UINT16, 1, std::nullopt}, {"b", data::ElementType::CHAR8, 4, std::nullopt}};
+    def.id       = 1;
+    def.name     = "Test";
+    def.elements = {{"a", data::ElementType::UINT16, 1, std::nullopt},
+                    {"b", data::ElementType::CHAR8, 4, std::nullopt}};
 
     ctx.dataSetDefs[def.id] = def;
 
@@ -23,9 +24,9 @@ TEST(DataMarshalling, MarshalsAndUnmarshalsWithPadding)
     inst.values.resize(def.elements.size());
 
     inst.values[0].defined = true;
-    inst.values[0].raw = {0x34, 0x12};
+    inst.values[0].raw     = {0x34, 0x12};
     inst.values[1].defined = true;
-    inst.values[1].raw = {'A', 'B'}; // shorter than expected
+    inst.values[1].raw     = {'A', 'B'}; // shorter than expected
 
     auto payload = marshalDataSet(inst, ctx);
     ASSERT_EQ(payload.size(), 6u);
@@ -48,11 +49,11 @@ TEST(DataMarshalling, MarshalsAndUnmarshalsWithPadding)
 
 TEST(DataMarshalling, UndefinedElementsAreZeroed)
 {
-    EngineContext ctx;
+    EngineContext    ctx;
     data::DataSetDef def;
-    def.id = 2;
-    def.name = "Undefined";
-    def.elements = {{"a", data::ElementType::UINT32, 1, std::nullopt}};
+    def.id                  = 2;
+    def.name                = "Undefined";
+    def.elements            = {{"a", data::ElementType::UINT32, 1, std::nullopt}};
     ctx.dataSetDefs[def.id] = def;
 
     data::DataSetInstance inst;

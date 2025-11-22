@@ -10,9 +10,10 @@
 
 TEST(ConfigManager, ParsesSampleConfig)
 {
-    const auto configPath = std::filesystem::path(__FILE__).parent_path().parent_path() / "config" / "sample_ci_device.xml";
+    const auto configPath =
+        std::filesystem::path(__FILE__).parent_path().parent_path() / "config" / "sample_ci_device.xml";
     config::ConfigManager mgr;
-    auto cfg = mgr.loadDeviceConfigFromXml(configPath.string());
+    auto                  cfg = mgr.loadDeviceConfigFromXml(configPath.string());
     mgr.validateDeviceConfig(cfg);
 
     EXPECT_EQ(cfg.hostName, "ci-device");
@@ -29,7 +30,7 @@ TEST(ConfigManager, ParsesSampleConfig)
 TEST(ConfigManager, DetectsDuplicateDatasetIds)
 {
     const std::string tmpPath = std::filesystem::temp_directory_path() / "dup_dataset.xml";
-    std::ofstream ofs(tmpPath);
+    std::ofstream     ofs(tmpPath);
     ofs << "<Device hostName=\"dup\">"
            "<DataSets>"
            "<DataSet name=\"ds1\" id=\"1\"><Element name=\"e1\" type=\"UINT8\"/></DataSet>"
@@ -42,29 +43,33 @@ TEST(ConfigManager, DetectsDuplicateDatasetIds)
     ofs.close();
 
     config::ConfigManager mgr;
-    auto cfg = mgr.loadDeviceConfigFromXml(tmpPath);
+    auto                  cfg = mgr.loadDeviceConfigFromXml(tmpPath);
     EXPECT_THROW(mgr.validateDeviceConfig(cfg), std::runtime_error);
 }
 
 TEST(ConfigManager, DetectsInvalidMdTimeouts)
 {
     const std::string tmpPath = std::filesystem::temp_directory_path() / "bad_mdcom.xml";
-    std::ofstream ofs(tmpPath);
+    std::ofstream     ofs(tmpPath);
     ofs << "<Device hostName=\"md\">"
            "<DataSets><DataSet name=\"ds\" id=\"1\"><Element name=\"e1\" type=\"UINT8\"/></DataSet></DataSets>"
            "<Interfaces><Interface networkId=\"1\" name=\"if1\">"
            "<PdCom port=\"17224\" qos=\"1\" ttl=\"1\" timeoutUs=\"1000\"/>"
-           "<MdCom udpPort=\"17225\" tcpPort=\"17226\" replyTimeoutUs=\"0\" confirmTimeoutUs=\"0\" retries=\"11\" protocol=\"TCP\" connectTimeoutUs=\"0\"/>"
+           "<MdCom udpPort=\"17225\" tcpPort=\"17226\" replyTimeoutUs=\"0\" confirmTimeoutUs=\"0\" retries=\"11\" "
+           "protocol=\"TCP\" connectTimeoutUs=\"0\"/>"
            "</Interface></Interfaces>"
            "</Device>";
     ofs.close();
 
     config::ConfigManager mgr;
-    auto cfg = mgr.loadDeviceConfigFromXml(tmpPath);
-    try {
+    auto                  cfg = mgr.loadDeviceConfigFromXml(tmpPath);
+    try
+    {
         mgr.validateDeviceConfig(cfg);
         FAIL() << "Expected validation failure";
-    } catch (const std::runtime_error& ex) {
+    }
+    catch (const std::runtime_error& ex)
+    {
         const std::string msg = ex.what();
         EXPECT_NE(msg.find("replyTimeoutUs"), std::string::npos);
     }
