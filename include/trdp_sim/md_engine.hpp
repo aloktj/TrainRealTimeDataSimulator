@@ -44,6 +44,11 @@ struct MdSessionRuntime {
     std::mutex mtx;
 };
 
+struct MdTelegramBinding {
+    const config::TelegramConfig* telegram {nullptr};
+    const config::BusInterfaceConfig* iface {nullptr};
+};
+
 class MdEngine
 {
 public:
@@ -66,6 +71,7 @@ private:
     trdp_sim::trdp::TrdpAdapter& m_adapter;
 
     std::mutex m_sessionsMtx;
+    std::unordered_map<uint32_t, MdTelegramBinding> m_telegramByComId;
     uint32_t m_nextSessionId {1};
     std::atomic<bool> m_running {false};
     std::thread m_thread; // Optional MD handling loop

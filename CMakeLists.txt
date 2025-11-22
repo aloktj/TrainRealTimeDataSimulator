@@ -30,6 +30,9 @@ find_package(Drogon REQUIRED)
 # Then:
 find_package(nlohmann_json QUIET)
 
+# 3) tinyxml2 for configuration parsing
+find_package(tinyxml2 REQUIRED)
+
 if(NOT nlohmann_json_FOUND)
     message(STATUS "nlohmann_json not found via find_package, using header-only include path fallback.")
     # If you vendor it under external/nlohmann_json, you can do something like:
@@ -37,7 +40,7 @@ if(NOT nlohmann_json_FOUND)
     # and then link nlohmann_json::nlohmann_json
 endif()
 
-# 3) TRDP library from TCNopen
+# 4) TRDP library from TCNopen
 # Here we declare an imported target 'trdp' pointing to a static library libtrdp.a.
 # Adjust the path to wherever you build/install TRDP.
 set(TRDP_LIB_PATH "/usr/local/lib/libtrdp.a" CACHE FILEPATH "Path to TCNopen TRDP static library")
@@ -93,6 +96,7 @@ target_link_libraries(trdp-simulator
     PRIVATE
         Drogon::Drogon   # Drogon CMake target
         trdp             # TRDP imported static lib
+        tinyxml2::tinyxml2
 )
 
 # nlohmann_json target if found
