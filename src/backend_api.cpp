@@ -10,8 +10,106 @@
 
 #include <nlohmann/json.hpp>
 
+#include "data_marshalling.hpp"
+
 namespace api
 {
+
+    namespace
+    {
+        std::string elementTypeToString(data::ElementType t)
+        {
+            switch (t)
+            {
+            case data::ElementType::BOOL8:
+                return "BOOL8";
+            case data::ElementType::CHAR8:
+                return "CHAR8";
+            case data::ElementType::UTF16:
+                return "UTF16";
+            case data::ElementType::INT8:
+                return "INT8";
+            case data::ElementType::INT16:
+                return "INT16";
+            case data::ElementType::INT32:
+                return "INT32";
+            case data::ElementType::INT64:
+                return "INT64";
+            case data::ElementType::UINT8:
+                return "UINT8";
+            case data::ElementType::UINT16:
+                return "UINT16";
+            case data::ElementType::UINT32:
+                return "UINT32";
+            case data::ElementType::UINT64:
+                return "UINT64";
+            case data::ElementType::REAL32:
+                return "REAL32";
+            case data::ElementType::REAL64:
+                return "REAL64";
+            case data::ElementType::TIMEDATE32:
+                return "TIMEDATE32";
+            case data::ElementType::TIMEDATE48:
+                return "TIMEDATE48";
+            case data::ElementType::TIMEDATE64:
+                return "TIMEDATE64";
+            case data::ElementType::NESTED_DATASET:
+                return "NESTED_DATASET";
+            }
+            return "UNKNOWN";
+        }
+
+        nlohmann::json buildElementSchema(const data::ElementDef& def, const trdp_sim::EngineContext& ctx)
+        {
+            nlohmann::json schema{{"name", def.name}, {"type", elementTypeToString(def.type)},
+                                  {"arraySize", def.arraySize}};
+            if (def.nestedDataSetId)
+            {
+                schema["nestedDataSetId"] = *def.nestedDataSetId;
+                auto nestedIt              = ctx.dataSetDefs.find(*def.nestedDataSetId);
+                if (nestedIt != ctx.dataSetDefs.end())
+                {
+                    schema["children"] = nlohmann::json::array();
+                    for (const auto& child : nestedIt->second.elements)
+                        schema["children"].push_back(buildElementSchema(child, ctx));
+                }
+            }
+            return schema;
+        }
+
+        std::size_t expectedElementSize(const data::DataSetInstance* inst, std::size_t elementIdx,
+                                        const trdp_sim::EngineContext& ctx)
+        {
+            if (!inst || !inst->def || elementIdx >= inst->def->elements.size())
+                return 0;
+            return trdp_sim::util::elementSize(inst->def->elements[elementIdx], ctx);
+        }
+
+        std::string computeDataSetStatus(const trdp_sim::EngineContext& ctx, const data::DataSetInstance* inst)
+        {
+            bool active{false};
+            bool found{false};
+            for (const auto& pdPtr : ctx.pdTelegrams)
+            {
+                if (!pdPtr || pdPtr->dataset != inst)
+                    continue;
+                found = true;
+                std::lock_guard<std::mutex> lk(pdPtr->mtx);
+                if (!pdPtr->enabled)
+                    continue;
+                if (pdPtr->direction == engine::pd::Direction::PUBLISH)
+                {
+                    active = active || pdPtr->stats.txCount > 0;
+                }
+                else
+                {
+                    active = active || (pdPtr->stats.rxCount > 0 && !pdPtr->stats.timedOut);
+                }
+            }
+
+            return found && active ? "Active" : "Inactive";
+        }
+    } // namespace
 
     BackendApi::BackendApi(trdp_sim::EngineContext& ctx, trdp_sim::BackendEngine& backend, engine::pd::PdEngine& pd,
                            engine::md::MdEngine& md, diag::DiagnosticManager& diag)
@@ -72,53 +170,20 @@ namespace api
             return oss.str();
         };
 
-        auto elementTypeToString = [](data::ElementType t)
-        {
-            switch (t)
-            {
-            case data::ElementType::BOOL8:
-                return "BOOL8";
-            case data::ElementType::CHAR8:
-                return "CHAR8";
-            case data::ElementType::UTF16:
-                return "UTF16";
-            case data::ElementType::INT8:
-                return "INT8";
-            case data::ElementType::INT16:
-                return "INT16";
-            case data::ElementType::INT32:
-                return "INT32";
-            case data::ElementType::INT64:
-                return "INT64";
-            case data::ElementType::UINT8:
-                return "UINT8";
-            case data::ElementType::UINT16:
-                return "UINT16";
-            case data::ElementType::UINT32:
-                return "UINT32";
-            case data::ElementType::UINT64:
-                return "UINT64";
-            case data::ElementType::REAL32:
-                return "REAL32";
-            case data::ElementType::REAL64:
-                return "REAL64";
-            case data::ElementType::TIMEDATE32:
-                return "TIMEDATE32";
-            case data::ElementType::TIMEDATE48:
-                return "TIMEDATE48";
-            case data::ElementType::TIMEDATE64:
-                return "TIMEDATE64";
-            case data::ElementType::NESTED_DATASET:
-                return "NESTED_DATASET";
-            }
-            return "UNKNOWN";
-        };
-
         j["dataSetId"]  = dataSetId;
         j["name"]       = inst->def ? inst->def->name : "";
         j["locked"]     = inst->locked;
         j["isOutgoing"] = inst->isOutgoing;
+        j["readOnly"]   = !inst->isOutgoing;
+        j["status"]     = computeDataSetStatus(m_ctx, inst);
         j["values"]     = nlohmann::json::array();
+
+        if (inst->def)
+        {
+            j["schema"] = nlohmann::json::array();
+            for (const auto& def : inst->def->elements)
+                j["schema"].push_back(buildElementSchema(def, m_ctx));
+        }
 
         if (inst->def)
         {
@@ -141,58 +206,133 @@ namespace api
         return j;
     }
 
-    void BackendApi::setDataSetValue(uint32_t dataSetId, std::size_t elementIdx, const std::vector<uint8_t>& value)
+    bool BackendApi::setDataSetValue(uint32_t dataSetId, std::size_t elementIdx, const std::vector<uint8_t>& value,
+                                     std::string* error)
     {
         auto* inst = m_pd.getDataSetInstance(dataSetId);
         if (!inst)
-            return;
+        {
+            if (error)
+                *error = "Unknown dataset";
+            return false;
+        }
         std::lock_guard<std::mutex> lock(inst->mtx);
         if (elementIdx >= inst->values.size())
-            return;
+        {
+            if (error)
+                *error = "Invalid element index";
+            return false;
+        }
+        if (!inst->isOutgoing)
+        {
+            if (error)
+                *error = "Dataset is read-only";
+            return false;
+        }
         if (inst->locked)
-            return;
+        {
+            if (error)
+                *error = "Dataset is locked";
+            return false;
+        }
+        auto expectedSize = expectedElementSize(inst, elementIdx, m_ctx);
+        if (expectedSize == 0)
+        {
+            if (error)
+                *error = "Unsupported dataset element";
+            return false;
+        }
+        if (value.size() != expectedSize)
+        {
+            if (error)
+            {
+                *error = "Value length " + std::to_string(value.size()) + " does not match expected " +
+                         std::to_string(expectedSize);
+            }
+            return false;
+        }
 
         inst->values[elementIdx].raw     = value;
         inst->values[elementIdx].defined = true;
+        return true;
     }
 
-    void BackendApi::clearDataSetValue(uint32_t dataSetId, std::size_t elementIdx)
+    bool BackendApi::clearDataSetValue(uint32_t dataSetId, std::size_t elementIdx, std::string* error)
     {
         auto* inst = m_pd.getDataSetInstance(dataSetId);
         if (!inst)
-            return;
+        {
+            if (error)
+                *error = "Unknown dataset";
+            return false;
+        }
         std::lock_guard<std::mutex> lock(inst->mtx);
         if (elementIdx >= inst->values.size())
-            return;
+        {
+            if (error)
+                *error = "Invalid element index";
+            return false;
+        }
+        if (!inst->isOutgoing)
+        {
+            if (error)
+                *error = "Dataset is read-only";
+            return false;
+        }
         if (inst->locked)
-            return;
+        {
+            if (error)
+                *error = "Dataset is locked";
+            return false;
+        }
 
         inst->values[elementIdx].raw.clear();
         inst->values[elementIdx].defined = false;
+        return true;
     }
 
-    void BackendApi::clearAllDataSetValues(uint32_t dataSetId)
+    bool BackendApi::clearAllDataSetValues(uint32_t dataSetId, std::string* error)
     {
         auto* inst = m_pd.getDataSetInstance(dataSetId);
         if (!inst)
-            return;
+        {
+            if (error)
+                *error = "Unknown dataset";
+            return false;
+        }
         std::lock_guard<std::mutex> lock(inst->mtx);
+        if (!inst->isOutgoing)
+        {
+            if (error)
+                *error = "Dataset is read-only";
+            return false;
+        }
         if (inst->locked)
-            return;
+        {
+            if (error)
+                *error = "Dataset is locked";
+            return false;
+        }
         for (auto& cell : inst->values)
         {
             cell.raw.clear();
             cell.defined = false;
         }
+        return true;
     }
 
-    void BackendApi::lockDataSet(uint32_t dataSetId, bool lock)
+    bool BackendApi::lockDataSet(uint32_t dataSetId, bool lock, std::string* error)
     {
         auto* inst = m_pd.getDataSetInstance(dataSetId);
         if (!inst)
-            return;
+        {
+            if (error)
+                *error = "Unknown dataset";
+            return false;
+        }
         std::lock_guard<std::mutex> guard(inst->mtx);
         inst->locked = lock;
+        return true;
     }
 
     uint32_t BackendApi::createMdRequest(uint32_t comId)
@@ -360,6 +500,8 @@ namespace api
             {
                 dsJson["elements"].push_back(
                     {{"name", el.name}, {"type", el.type}, {"arraySize", el.arraySize}});
+                if (el.nestedDataSetId)
+                    dsJson["elements"].back()["nestedDataSetId"] = *el.nestedDataSetId;
             }
             j["dataSets"].push_back(dsJson);
         }

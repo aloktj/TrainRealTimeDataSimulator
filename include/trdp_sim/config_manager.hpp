@@ -165,6 +165,7 @@ namespace config
         std::string name;
         uint32_t    type{};
         uint32_t    arraySize{1};
+        std::optional<uint32_t> nestedDataSetId;
     };
 
     struct DataSetConfig

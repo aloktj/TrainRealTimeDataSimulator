@@ -229,6 +229,10 @@ namespace config
             auto typeStr  = parseString(path, elem, "type", true);
             cfg.type      = static_cast<uint32_t>(parseElementType(path, elem, typeStr));
             cfg.arraySize = parseUnsigned<uint32_t>(path, elem, "arraySize", false, 1);
+            if (static_cast<data::ElementType>(cfg.type) == data::ElementType::NESTED_DATASET)
+            {
+                cfg.nestedDataSetId = parseUnsigned<uint32_t>(path, elem, "nestedDataSetId", true);
+            }
             return cfg;
         }
 
@@ -574,6 +578,10 @@ namespace config
         {
             if (!dataSetIds.insert(ds.id).second)
                 throw std::runtime_error("Duplicate dataset id: " + std::to_string(ds.id));
+        }
+
+        for (const auto& ds : cfg.dataSets)
+        {
             if (ds.elements.empty())
                 throw std::runtime_error("Dataset has no elements: " + ds.name);
             for (const auto& el : ds.elements)
@@ -582,6 +590,14 @@ namespace config
                 if (typeVal <= 0 || typeVal > static_cast<int>(data::ElementType::NESTED_DATASET))
                     throw std::runtime_error("Unsupported dataset element type in " + ds.name + ": " +
                                              std::to_string(el.type));
+                if (static_cast<data::ElementType>(el.type) == data::ElementType::NESTED_DATASET)
+                {
+                    if (!el.nestedDataSetId)
+                        throw std::runtime_error("Nested dataset element missing nestedDataSetId in " + ds.name);
+                    if (dataSetIds.find(*el.nestedDataSetId) == dataSetIds.end())
+                        throw std::runtime_error("Nested dataset element references unknown dataset id " +
+                                                 std::to_string(*el.nestedDataSetId));
+                }
             }
         }
 
@@ -680,6 +696,7 @@ namespace config
                 ed.name      = elemCfg.name;
                 ed.type      = static_cast<data::ElementType>(elemCfg.type);
                 ed.arraySize = elemCfg.arraySize;
+                ed.nestedDataSetId = elemCfg.nestedDataSetId;
                 def.elements.push_back(std::move(ed));
             }
             defs.push_back(std::move(def));
