@@ -159,6 +159,11 @@ int TrdpAdapter::sendPdData(const engine::pd::PdTelegramRuntime& pd, const std::
     if (!m_ctx.trdpSession || !pd.cfg || !pd.pdComCfg)
         return -1;
 
+    {
+        std::lock_guard<std::mutex> lk(m_errMtx);
+        m_lastPdPayload = payload;
+    }
+
     if (!pd.pubHandle) {
         int rc = publishPd(pd);
         if (rc != 0)
@@ -203,6 +208,11 @@ int TrdpAdapter::sendMdRequest(engine::md::MdSessionRuntime& session)
     if (!m_ctx.trdpSession || !session.telegram)
         return -1;
 
+    {
+        std::lock_guard<std::mutex> lk(m_errMtx);
+        m_requestedSessions.push_back(session.sessionId);
+    }
+
     TRDP_IP_ADDR_T destIp = 0;
     if (!session.telegram->destinations.empty())
         destIp = toIp(session.telegram->destinations.front().uri);
@@ -236,6 +246,11 @@ int TrdpAdapter::sendMdReply(engine::md::MdSessionRuntime& session)
 {
     if (!m_ctx.trdpSession || !session.telegram)
         return -1;
+
+    {
+        std::lock_guard<std::mutex> lk(m_errMtx);
+        m_repliedSessions.push_back(session.sessionId);
+    }
 
     TRDP_IP_ADDR_T destIp = 0;
     if (!session.telegram->destinations.empty())
@@ -324,6 +339,24 @@ std::optional<uint32_t> TrdpAdapter::getLastErrorCode() const
 {
     std::lock_guard<std::mutex> lk(m_errMtx);
     return m_lastErrorCode;
+}
+
+std::vector<uint8_t> TrdpAdapter::getLastPdPayload() const
+{
+    std::lock_guard<std::mutex> lk(m_errMtx);
+    return m_lastPdPayload;
+}
+
+std::vector<uint32_t> TrdpAdapter::getRequestedSessions() const
+{
+    std::lock_guard<std::mutex> lk(m_errMtx);
+    return m_requestedSessions;
+}
+
+std::vector<uint32_t> TrdpAdapter::getRepliedSessions() const
+{
+    std::lock_guard<std::mutex> lk(m_errMtx);
+    return m_repliedSessions;
 }
 
 void TrdpAdapter::recordError(uint32_t code, uint64_t TrdpErrorCounters::*member)

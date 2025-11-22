@@ -1,0 +1,54 @@
+<Device hostName="ci-device" leaderName="ci-leader" type="simulator">
+    <Memory memorySize="4096">
+        <Block size="256" preallocate="2" />
+        <Block size="1024" preallocate="1" />
+    </Memory>
+    <ComParameters>
+        <ComParameter id="1" qos="3" ttl="32" />
+    </ComParameters>
+    <DataSets>
+        <DataSet name="PdStatus" id="1">
+            <Element name="speed" type="UINT16" />
+            <Element name="active" type="BOOL8" />
+        </DataSet>
+        <DataSet name="MdPayload" id="2">
+            <Element name="code" type="UINT8" />
+            <Element name="value" type="UINT32" />
+        </DataSet>
+        <DataSet name="Inbound" id="3">
+            <Element name="seq" type="UINT32" />
+            <Element name="payload" type="CHAR8" arraySize="4" />
+        </DataSet>
+    </DataSets>
+    <Interfaces>
+        <Interface networkId="1" name="if1" hostIp="192.168.0.10">
+            <TrdpProcess cycleTimeUs="1000" priority="10" trafficShaping="false" />
+            <PdCom port="17224" qos="3" ttl="64" timeoutUs="200000" validityBehavior="KEEP" />
+            <MdCom udpPort="17225" tcpPort="17226" confirmTimeoutUs="50000" replyTimeoutUs="40000" marshall="true" protocol="UDP" retries="1" numSessions="2" />
+            <Telegrams>
+                <Telegram name="PdStatus" comId="1001" dataSetId="1" comParameterId="1">
+                    <PdParameters cycleUs="100000" marshall="true" timeoutUs="200000" validityBehavior="KEEP" redundant="0" callback="false" offsetAddress="0" />
+                    <Destinations>
+                        <Destination id="1" uri="239.1.1.1" name="pd-mcast" />
+                    </Destinations>
+                </Telegram>
+                <Telegram name="MdCommand" comId="2001" dataSetId="2" comParameterId="1">
+                    <Destinations>
+                        <Destination id="1" uri="192.168.0.11" name="peer" />
+                    </Destinations>
+                </Telegram>
+                <Telegram name="PdInbound" comId="3001" dataSetId="3" comParameterId="1">
+                    <PdParameters cycleUs="100000" marshall="true" timeoutUs="120000" validityBehavior="KEEP" />
+                    <Destinations />
+                </Telegram>
+            </Telegrams>
+        </Interface>
+    </Interfaces>
+    <MappedDevices>
+        <MappedDevice hostName="remote-device" leaderName="remote-leader">
+            <Interface name="if1" hostIp="192.168.0.20" leaderIp="192.168.0.21">
+                <MappedTelegram name="PdStatus" comId="1001" />
+            </Interface>
+        </MappedDevice>
+    </MappedDevices>
+</Device>

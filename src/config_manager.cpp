@@ -207,7 +207,7 @@ PdComParameter parsePdCom(XMLElement* elem)
     if (!elem)
         throw std::runtime_error("Interface missing <PdCom> definition");
     PdComParameter cfg;
-    cfg.marshall = parseBool(elem, "marshall", false, true);
+    cfg.marshall = parseBool(elem, "marshall", true);
     cfg.port = parseUnsigned<uint16_t>(elem, "port", true);
     cfg.qos = parseUnsigned<uint8_t>(elem, "qos", true);
     cfg.ttl = parseUnsigned<uint8_t>(elem, "ttl", true);
@@ -227,7 +227,7 @@ MdComParameter parseMdCom(XMLElement* elem)
     cfg.confirmTimeoutUs = parseUnsigned<uint32_t>(elem, "confirmTimeoutUs", false, 0);
     cfg.connectTimeoutUs = parseUnsigned<uint32_t>(elem, "connectTimeoutUs", false, 0);
     cfg.replyTimeoutUs = parseUnsigned<uint32_t>(elem, "replyTimeoutUs", false, 0);
-    cfg.marshall = parseBool(elem, "marshall", false, true);
+    cfg.marshall = parseBool(elem, "marshall", true);
     cfg.protocol = parseMdProtocol(parseString(elem, "protocol", false, "UDP"));
     cfg.qos = parseUnsigned<uint8_t>(elem, "qos", false, 0);
     cfg.ttl = parseUnsigned<uint8_t>(elem, "ttl", false, 0);
@@ -376,10 +376,9 @@ void ConfigManager::validateDeviceConfig(const DeviceConfig& cfg)
     for (const auto& iface : cfg.interfaces) {
         if (!ifaceNames.insert(iface.name).second)
             throw std::runtime_error("Duplicate interface name: " + iface.name);
-        if (iface.pdCom.port == 0 || iface.pdCom.port > 65535)
+        if (iface.pdCom.port == 0)
             throw std::runtime_error("Invalid PD port on interface " + iface.name);
-        if (iface.mdCom.udpPort == 0 || iface.mdCom.udpPort > 65535 ||
-            iface.mdCom.tcpPort == 0 || iface.mdCom.tcpPort > 65535)
+        if (iface.mdCom.udpPort == 0 || iface.mdCom.tcpPort == 0)
             throw std::runtime_error("Invalid MD port on interface " + iface.name);
 
         for (const auto& tel : iface.telegrams) {

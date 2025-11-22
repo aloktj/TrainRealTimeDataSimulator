@@ -1,0 +1,22 @@
+<Device hostName="pd-only" type="simulator">
+    <DataSets>
+        <DataSet name="Heartbeat" id="10">
+            <Element name="counter" type="UINT32" />
+        </DataSet>
+    </DataSets>
+    <Interfaces>
+        <Interface networkId="1" name="if-test" hostIp="10.0.0.10">
+            <TrdpProcess cycleTimeUs="5000" priority="5" />
+            <PdCom port="17224" qos="3" ttl="64" timeoutUs="20000" validityBehavior="KEEP" />
+            <MdCom udpPort="17225" tcpPort="17226" confirmTimeoutUs="20000" replyTimeoutUs="15000" retries="0" numSessions="1" />
+            <Telegrams>
+                <Telegram name="Heartbeat" comId="6001" dataSetId="10">
+                    <PdParameters cycleUs="20000" marshall="true" timeoutUs="20000" validityBehavior="KEEP" />
+                    <Destinations>
+                        <Destination id="1" uri="239.10.10.10" />
+                    </Destinations>
+                </Telegram>
+            </Telegrams>
+        </Interface>
+    </Interfaces>
+</Device>

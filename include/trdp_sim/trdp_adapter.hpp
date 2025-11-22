@@ -48,11 +48,19 @@ public:
     TrdpErrorCounters getErrorCounters() const;
     std::optional<uint32_t> getLastErrorCode() const;
 
+    // Helpful for tests/stubs
+    std::vector<uint8_t> getLastPdPayload() const;
+    std::vector<uint32_t> getRequestedSessions() const;
+    std::vector<uint32_t> getRepliedSessions() const;
+
 private:
     EngineContext& m_ctx;
     mutable std::mutex m_errMtx;
     TrdpErrorCounters m_errorCounters {};
     std::optional<uint32_t> m_lastErrorCode;
+    std::vector<uint8_t> m_lastPdPayload;
+    std::vector<uint32_t> m_requestedSessions;
+    std::vector<uint32_t> m_repliedSessions;
 
     void recordError(uint32_t code, uint64_t TrdpErrorCounters::*member);
 };
