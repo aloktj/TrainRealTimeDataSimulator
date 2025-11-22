@@ -1,0 +1,53 @@
+<Device hostName="sim01" leaderName="sim-leader" type="simulator">
+    <Memory memorySize="1048576">
+        <Block size="4096" preallocate="4" />
+        <Block size="8192" preallocate="2" />
+    </Memory>
+    <Debug fileName="logs/trdp.log" fileSize="1048576" info="development" level="D" />
+
+    <ComParameters>
+        <ComParameter id="1" qos="5" ttl="64" />
+        <ComParameter id="2" qos="3" ttl="32" />
+    </ComParameters>
+
+    <DataSets>
+        <DataSet id="100" name="TrainStatus">
+            <Element name="speed" type="REAL32" />
+            <Element name="doorOpen" type="BOOL8" />
+        </DataSet>
+        <DataSet id="101" name="Diagnostic">
+            <Element name="code" type="UINT32" />
+            <Element name="severity" type="UINT8" />
+        </DataSet>
+    </DataSets>
+
+    <Interfaces>
+        <Interface name="eth0" networkId="1" hostIp="192.168.0.10">
+            <TrdpProcess blocking="false" cycleTimeUs="1000" priority="10" trafficShaping="true" />
+            <PdCom marshall="true" port="17224" qos="4" ttl="32" timeoutUs="200000" validityBehavior="KEEP" callbackEnabled="true" />
+            <MdCom udpPort="17225" tcpPort="17226" confirmTimeoutUs="500000" connectTimeoutUs="500000" replyTimeoutUs="500000" marshall="true" protocol="UDP" qos="5" ttl="64" retries="2" numSessions="4" />
+            <Telegrams>
+                <Telegram name="TrainStatusTx" comId="5000" dataSetId="100" comParameterId="1">
+                    <PdParameters cycleUs="100000" marshall="true" timeoutUs="200000" validityBehavior="KEEP" redundant="0" callback="false" offsetAddress="0" />
+                    <Destinations>
+                        <Destination id="1" uri="udp://239.0.0.1" name="multicast" />
+                    </Destinations>
+                </Telegram>
+                <Telegram name="DiagRx" comId="5001" dataSetId="101" comParameterId="2">
+                    <PdParameters cycleUs="200000" marshall="true" timeoutUs="400000" validityBehavior="ZERO" redundant="0" callback="true" offsetAddress="0" />
+                </Telegram>
+                <Telegram name="DiagMdRequest" comId="6000" dataSetId="101" comParameterId="2">
+                    <!-- MD telegram without PdParameters signals MD flow -->
+                </Telegram>
+            </Telegrams>
+        </Interface>
+    </Interfaces>
+
+    <MappedDevices>
+        <MappedDevice hostName="sim01" leaderName="sim-leader">
+            <Interface name="eth0" hostIp="192.168.0.10" leaderIp="192.168.0.11">
+                <MappedTelegram name="TrainStatusTx" comId="5000" />
+            </Interface>
+        </MappedDevice>
+    </MappedDevices>
+</Device>

@@ -1,6 +1,8 @@
 #include "md_engine.hpp"
 #include "trdp_adapter.hpp"
 
+#include <iostream>
+
 namespace engine::md {
 
 MdEngine::MdEngine(trdp_sim::EngineContext& ctx, trdp_sim::trdp::TrdpAdapter& adapter)
@@ -11,7 +13,14 @@ MdEngine::MdEngine(trdp_sim::EngineContext& ctx, trdp_sim::trdp::TrdpAdapter& ad
 
 void MdEngine::initializeFromConfig()
 {
-    // TODO: register responders based on configuration if needed
+    m_telegramByComId.clear();
+    for (const auto& iface : m_ctx.deviceConfig.interfaces) {
+        for (const auto& tel : iface.telegrams) {
+            if (tel.pdParam)
+                continue; // PD telegrams handled by PdEngine
+            m_telegramByComId[tel.comId] = MdTelegramBinding{ &tel, &iface };
+        }
+    }
 }
 
 void MdEngine::start()
@@ -32,9 +41,26 @@ uint32_t MdEngine::createRequestSession(uint32_t comId)
     std::lock_guard<std::mutex> lock(m_sessionsMtx);
     uint32_t id = m_nextSessionId++;
 
+    auto it = m_telegramByComId.find(comId);
+    if (it == m_telegramByComId.end()) {
+        std::cerr << "MD telegram not found for COM ID " << comId << std::endl;
+        return 0;
+    }
+
+    auto dsIt = m_ctx.dataSetInstances.find(it->second.telegram->dataSetId);
+    if (dsIt == m_ctx.dataSetInstances.end()) {
+        std::cerr << "Dataset instance missing for MD COM ID " << comId << std::endl;
+        return 0;
+    }
+
     auto* sess = new MdSessionRuntime();
     sess->sessionId = id;
-    // TODO: find telegram by comId and link
+    sess->telegram = it->second.telegram;
+    sess->requestData = dsIt->second.get();
+    sess->responseData = dsIt->second.get();
+    sess->proto = it->second.iface && it->second.iface->mdCom.protocol == config::MdComParameter::Protocol::TCP
+        ? MdProtocol::TCP
+        : MdProtocol::UDP;
     m_ctx.mdSessions[id].reset(sess);
     return id;
 }

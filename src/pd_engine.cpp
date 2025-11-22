@@ -2,6 +2,7 @@
 #include "trdp_adapter.hpp"
 
 #include <chrono>
+#include <iostream>
 #include <thread>
 
 namespace engine::pd {
@@ -19,7 +20,37 @@ PdEngine::~PdEngine()
 
 void PdEngine::initializeFromConfig()
 {
-    // TODO: create PdTelegramRuntime instances from m_ctx.deviceConfig
+    m_ctx.pdTelegrams.clear();
+
+    for (const auto& iface : m_ctx.deviceConfig.interfaces) {
+        for (const auto& tel : iface.telegrams) {
+            if (!tel.pdParam)
+                continue; // Skip MD telegrams
+
+            auto dsIt = m_ctx.dataSetInstances.find(tel.dataSetId);
+            if (dsIt == m_ctx.dataSetInstances.end()) {
+                std::cerr << "Dataset instance missing for PD COM ID " << tel.comId << std::endl;
+                continue;
+            }
+
+            auto rt = std::make_unique<PdTelegramRuntime>();
+            rt->cfg = &tel;
+            rt->ifaceCfg = &iface;
+            rt->pdComCfg = &iface.pdCom;
+            rt->dataset = dsIt->second.get();
+            rt->dataset->isOutgoing = !tel.destinations.empty();
+            rt->direction = tel.destinations.empty() ? Direction::SUBSCRIBE : Direction::PUBLISH;
+            rt->enabled = true;
+
+            if (rt->direction == Direction::SUBSCRIBE) {
+                int rc = m_adapter.subscribePd(*rt);
+                if (rc != 0)
+                    std::cerr << "Failed to subscribe PD COM ID " << tel.comId << " (rc=" << rc << ")" << std::endl;
+            }
+
+            m_ctx.pdTelegrams.push_back(std::move(rt));
+        }
+    }
 }
 
 void PdEngine::start()
