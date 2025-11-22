@@ -10,18 +10,51 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <optional>
+#include <string>
 
 using namespace drogon;
 
 int main(int argc, char* argv[])
 {
-    (void)argc;
-    (void)argv;
+    std::string configPath = "config/trdp.xml";
+    std::optional<bool> pcapEnableOverride;
+    std::optional<std::string> pcapFileOverride;
+    std::optional<std::size_t> pcapMaxSizeOverride;
+    std::optional<std::size_t> pcapMaxFilesOverride;
+    std::optional<bool> pcapRxOverride;
+    std::optional<bool> pcapTxOverride;
+
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--config" && i + 1 < argc) {
+            configPath = argv[++i];
+        } else if (arg == "--pcap-enable") {
+            pcapEnableOverride = true;
+        } else if (arg == "--pcap-disable") {
+            pcapEnableOverride = false;
+        } else if (arg == "--pcap-file" && i + 1 < argc) {
+            pcapFileOverride = argv[++i];
+        } else if (arg == "--pcap-max-size" && i + 1 < argc) {
+            pcapMaxSizeOverride = std::stoull(argv[++i]);
+        } else if (arg == "--pcap-max-files" && i + 1 < argc) {
+            pcapMaxFilesOverride = std::stoull(argv[++i]);
+        } else if (arg == "--pcap-rx-only") {
+            pcapRxOverride = true;
+            pcapTxOverride = false;
+        } else if (arg == "--pcap-tx-only") {
+            pcapTxOverride = true;
+            pcapRxOverride = false;
+        } else if (arg == "--pcap-bidirectional") {
+            pcapTxOverride = true;
+            pcapRxOverride = true;
+        }
+    }
 
     trdp_sim::EngineContext ctx;
 
     config::ConfigManager cfgMgr;
-    ctx.deviceConfig = cfgMgr.loadDeviceConfigFromXml("config/trdp.xml");
+    ctx.deviceConfig = cfgMgr.loadDeviceConfigFromXml(configPath);
     cfgMgr.validateDeviceConfig(ctx.deviceConfig);
 
     // Build dataset defs & instances
@@ -43,7 +76,30 @@ int main(int argc, char* argv[])
     ctx.pdEngine = &pdEngine;
     ctx.mdEngine = &mdEngine;
 
-    diag::DiagnosticManager diagMgr(ctx, pdEngine, mdEngine, adapter);
+    diag::PcapConfig pcapCfg {};
+    if (ctx.deviceConfig.pcap) {
+        pcapCfg.enabled = ctx.deviceConfig.pcap->enabled;
+        pcapCfg.captureTx = ctx.deviceConfig.pcap->captureTx;
+        pcapCfg.captureRx = ctx.deviceConfig.pcap->captureRx;
+        pcapCfg.filePath = ctx.deviceConfig.pcap->fileName;
+        pcapCfg.maxFileSizeBytes = ctx.deviceConfig.pcap->maxSizeBytes;
+        pcapCfg.maxFiles = ctx.deviceConfig.pcap->maxFiles;
+    }
+    if (pcapEnableOverride)
+        pcapCfg.enabled = *pcapEnableOverride;
+    if (pcapFileOverride)
+        pcapCfg.filePath = *pcapFileOverride;
+    if (pcapMaxSizeOverride)
+        pcapCfg.maxFileSizeBytes = *pcapMaxSizeOverride;
+    if (pcapMaxFilesOverride)
+        pcapCfg.maxFiles = *pcapMaxFilesOverride;
+    if (pcapRxOverride)
+        pcapCfg.captureRx = *pcapRxOverride;
+    if (pcapTxOverride)
+        pcapCfg.captureTx = *pcapTxOverride;
+
+    diag::DiagnosticManager diagMgr(ctx, pdEngine, mdEngine, adapter, {}, pcapCfg);
+    ctx.diagManager = &diagMgr;
     diagMgr.start();
 
     pdEngine.initializeFromConfig();

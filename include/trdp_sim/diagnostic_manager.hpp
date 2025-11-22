@@ -89,6 +89,16 @@ struct LogConfig
     std::size_t maxFileSizeBytes {0};
 };
 
+struct PcapConfig
+{
+    bool enabled {false};
+    bool captureTx {true};
+    bool captureRx {true};
+    std::optional<std::string> filePath {};
+    std::size_t maxFileSizeBytes {0};
+    std::size_t maxFiles {2};
+};
+
 class DiagnosticManager
 {
 public:
@@ -96,7 +106,8 @@ public:
                       engine::pd::PdEngine& pd,
                       engine::md::MdEngine& md,
                       trdp_sim::trdp::TrdpAdapter& adapter,
-                      const LogConfig& cfg = {});
+                      const LogConfig& cfg = {},
+                      const PcapConfig& pcapCfg = {});
     ~DiagnosticManager();
 
     void start();
@@ -111,6 +122,7 @@ public:
     void updateLogConfig(const LogConfig& cfg);
 
     void enablePcapCapture(bool enable);
+    void updatePcapConfig(const PcapConfig& cfg);
     void writePacketToPcap(const uint8_t* data, std::size_t len, bool isTx);
 
 private:
@@ -121,6 +133,9 @@ private:
     bool shouldLog(Severity sev) const;
     std::string severityToString(Severity sev) const;
     std::string formatTimestamp(const std::chrono::system_clock::time_point& tp) const;
+    bool ensurePcapFileUnlocked(std::size_t nextPacketSize);
+    void rotatePcapFilesUnlocked();
+    void writePcapGlobalHeader();
 
     trdp_sim::EngineContext& m_ctx;
     engine::pd::PdEngine& m_pd;
@@ -142,8 +157,11 @@ private:
     std::chrono::steady_clock::time_point m_lastPoll {};
     std::chrono::milliseconds m_pollInterval {std::chrono::milliseconds(1000)};
 
-    bool m_pcapEnabled {false};
-    // TODO: PCAP file handle
+    PcapConfig m_pcapCfg {};
+    std::filesystem::path m_pcapPath;
+    std::ofstream m_pcapFile;
+    std::mutex m_pcapMtx;
+    std::size_t m_pcapBytesWritten {0};
 };
 
 } // namespace diag

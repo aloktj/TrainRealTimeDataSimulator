@@ -1,5 +1,7 @@
 #include "trdp_adapter.hpp"
 
+#include "diagnostic_manager.hpp"
+
 #include <arpa/inet.h>
 #include <chrono>
 #include <cstring>
@@ -21,6 +23,12 @@
 namespace trdp_sim::trdp {
 
 namespace {
+
+std::string buildPcapEventJson(uint32_t comId, std::size_t len, const std::string& dir)
+{
+    return std::string("{\"comId\":") + std::to_string(comId) + ",\"bytes\":" + std::to_string(len) +
+        ",\"direction\":\"" + dir + "\"}";
+}
 
 TRDP_IP_ADDR_T toIp(const std::optional<std::string>& maybeIp)
 {
@@ -115,6 +123,8 @@ int TrdpAdapter::publishPd(const engine::pd::PdTelegramRuntime& pd)
     if (err != TRDP_NO_ERR) {
         recordError(static_cast<uint32_t>(err), &TrdpErrorCounters::publishErrors);
         std::cerr << "tlp_publish failed for COM ID " << pd.cfg->comId << " error=" << err << std::endl;
+        if (m_ctx.diagManager)
+            m_ctx.diagManager->log(diag::Severity::ERROR, "PD", "Failed to publish", buildPcapEventJson(pd.cfg->comId, 0, "tx"));
         return -static_cast<int>(err);
     }
     return 0;
@@ -149,6 +159,8 @@ int TrdpAdapter::subscribePd(engine::pd::PdTelegramRuntime& pd)
     if (err != TRDP_NO_ERR) {
         recordError(static_cast<uint32_t>(err), &TrdpErrorCounters::subscribeErrors);
         std::cerr << "tlp_subscribe failed for COM ID " << pd.cfg->comId << " error=" << err << std::endl;
+        if (m_ctx.diagManager)
+            m_ctx.diagManager->log(diag::Severity::ERROR, "PD", "Failed to subscribe", buildPcapEventJson(pd.cfg->comId, 0, "rx"));
         return -static_cast<int>(err);
     }
     return 0;
@@ -179,13 +191,25 @@ int TrdpAdapter::sendPdData(const engine::pd::PdTelegramRuntime& pd, const std::
     if (err != TRDP_NO_ERR) {
         recordError(static_cast<uint32_t>(err), &TrdpErrorCounters::pdSendErrors);
         std::cerr << "tlp_put failed for COM ID " << pd.cfg->comId << " error=" << err << std::endl;
+        if (m_ctx.diagManager)
+            m_ctx.diagManager->log(diag::Severity::ERROR, "PD", "PD send failed", buildPcapEventJson(pd.cfg->comId, payload.size(), "tx"));
         return -static_cast<int>(err);
+    }
+
+    if (m_ctx.diagManager) {
+        m_ctx.diagManager->writePacketToPcap(payload.data(), payload.size(), true);
+        m_ctx.diagManager->log(diag::Severity::DEBUG, "PD", "PD packet transmitted", buildPcapEventJson(pd.cfg->comId, payload.size(), "tx"));
     }
     return 0;
 }
 
 void TrdpAdapter::handlePdCallback(uint32_t comId, const uint8_t* data, std::size_t len)
 {
+    if (m_ctx.diagManager) {
+        m_ctx.diagManager->writePacketToPcap(data, len, false);
+        m_ctx.diagManager->log(diag::Severity::DEBUG, "PD", "PD packet received", buildPcapEventJson(comId, len, "rx"));
+    }
+
     if (m_ctx.pdEngine) {
         m_ctx.pdEngine->onPdReceived(comId, data, len);
         return;
@@ -238,7 +262,13 @@ int TrdpAdapter::sendMdRequest(engine::md::MdSessionRuntime& session, const std:
     if (err != TRDP_NO_ERR) {
         recordError(static_cast<uint32_t>(err), &TrdpErrorCounters::mdRequestErrors);
         std::cerr << "tlm_request failed for session " << session.sessionId << " error=" << err << std::endl;
+        if (m_ctx.diagManager)
+            m_ctx.diagManager->log(diag::Severity::ERROR, "MD", "MD request failed", buildPcapEventJson(session.comId, payload.size(), "tx"));
         return -static_cast<int>(err);
+    }
+    if (m_ctx.diagManager) {
+        m_ctx.diagManager->writePacketToPcap(payload.data(), payload.size(), true);
+        m_ctx.diagManager->log(diag::Severity::DEBUG, "MD", "MD request sent", buildPcapEventJson(session.comId, payload.size(), "tx"));
     }
     return 0;
 }
@@ -275,13 +305,24 @@ int TrdpAdapter::sendMdReply(engine::md::MdSessionRuntime& session, const std::v
     if (err != TRDP_NO_ERR) {
         recordError(static_cast<uint32_t>(err), &TrdpErrorCounters::mdReplyErrors);
         std::cerr << "tlm_reply failed for session " << session.sessionId << " error=" << err << std::endl;
+        if (m_ctx.diagManager)
+            m_ctx.diagManager->log(diag::Severity::ERROR, "MD", "MD reply failed", buildPcapEventJson(session.comId, payload.size(), "tx"));
         return -static_cast<int>(err);
+    }
+    if (m_ctx.diagManager) {
+        m_ctx.diagManager->writePacketToPcap(payload.data(), payload.size(), true);
+        m_ctx.diagManager->log(diag::Severity::DEBUG, "MD", "MD reply sent", buildPcapEventJson(session.comId, payload.size(), "tx"));
     }
     return 0;
 }
 
 void TrdpAdapter::handleMdCallback(uint32_t sessionId, const uint8_t* data, std::size_t len)
 {
+    if (m_ctx.diagManager) {
+        m_ctx.diagManager->writePacketToPcap(data, len, false);
+        m_ctx.diagManager->log(diag::Severity::DEBUG, "MD", "MD packet received", buildPcapEventJson(sessionId, len, "rx"));
+    }
+
     if (m_ctx.mdEngine) {
         m_ctx.mdEngine->onMdIndication(sessionId, data, len);
         return;

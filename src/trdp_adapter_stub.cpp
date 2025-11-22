@@ -2,12 +2,23 @@
 #include "data_marshalling.hpp"
 #include "md_engine.hpp"
 #include "pd_engine.hpp"
+#include "diagnostic_manager.hpp"
 
 #include <algorithm>
 #include <chrono>
 #include <mutex>
 
 namespace trdp_sim::trdp {
+
+namespace {
+
+std::string buildPcapEventJson(uint32_t comId, std::size_t len, const std::string& dir)
+{
+    return std::string("{\"comId\":") + std::to_string(comId) + ",\"bytes\":" + std::to_string(len) +
+        ",\"direction\":\"" + dir + "\"}";
+}
+
+}
 
 TrdpAdapter::TrdpAdapter(EngineContext& ctx)
     : m_ctx(ctx)
@@ -42,11 +53,19 @@ int TrdpAdapter::sendPdData(const engine::pd::PdTelegramRuntime& pd, const std::
     std::lock_guard<std::mutex> lk(m_errMtx);
     m_lastPdPayload = payload;
     (void)pd;
+    if (m_ctx.diagManager) {
+        m_ctx.diagManager->writePacketToPcap(payload.data(), payload.size(), true);
+        m_ctx.diagManager->log(diag::Severity::DEBUG, "PD", "PD packet transmitted", buildPcapEventJson(pd.cfg ? pd.cfg->comId : 0, payload.size(), "tx"));
+    }
     return 0;
 }
 
 void TrdpAdapter::handlePdCallback(uint32_t comId, const uint8_t* data, std::size_t len)
 {
+    if (m_ctx.diagManager) {
+        m_ctx.diagManager->writePacketToPcap(data, len, false);
+        m_ctx.diagManager->log(diag::Severity::DEBUG, "PD", "PD packet received", buildPcapEventJson(comId, len, "rx"));
+    }
     if (m_ctx.pdEngine) {
         m_ctx.pdEngine->onPdReceived(comId, data, len);
     }
@@ -57,6 +76,10 @@ int TrdpAdapter::sendMdRequest(engine::md::MdSessionRuntime& session, const std:
     std::lock_guard<std::mutex> lk(m_errMtx);
     m_requestedSessions.push_back(session.sessionId);
     m_lastMdRequestPayload = payload;
+    if (m_ctx.diagManager) {
+        m_ctx.diagManager->writePacketToPcap(payload.data(), payload.size(), true);
+        m_ctx.diagManager->log(diag::Severity::DEBUG, "MD", "MD request sent", buildPcapEventJson(session.comId, payload.size(), "tx"));
+    }
     (void)session;
     return 0;
 }
@@ -66,12 +89,20 @@ int TrdpAdapter::sendMdReply(engine::md::MdSessionRuntime& session, const std::v
     std::lock_guard<std::mutex> lk(m_errMtx);
     m_repliedSessions.push_back(session.sessionId);
     m_lastMdReplyPayload = payload;
+    if (m_ctx.diagManager) {
+        m_ctx.diagManager->writePacketToPcap(payload.data(), payload.size(), true);
+        m_ctx.diagManager->log(diag::Severity::DEBUG, "MD", "MD reply sent", buildPcapEventJson(session.comId, payload.size(), "tx"));
+    }
     (void)session;
     return 0;
 }
 
 void TrdpAdapter::handleMdCallback(uint32_t sessionId, const uint8_t* data, std::size_t len)
 {
+    if (m_ctx.diagManager) {
+        m_ctx.diagManager->writePacketToPcap(data, len, false);
+        m_ctx.diagManager->log(diag::Severity::DEBUG, "MD", "MD packet received", buildPcapEventJson(sessionId, len, "rx"));
+    }
     if (m_ctx.mdEngine) {
         m_ctx.mdEngine->onMdIndication(sessionId, data, len);
     }

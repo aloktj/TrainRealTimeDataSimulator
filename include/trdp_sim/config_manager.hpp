@@ -28,6 +28,15 @@ struct DebugConfig {
     char level {'W'};
 };
 
+struct PcapConfig {
+    bool enabled {false};
+    bool captureTx {true};
+    bool captureRx {true};
+    std::string fileName;
+    uint32_t maxSizeBytes {0};
+    uint32_t maxFiles {2};
+};
+
 struct ComParameter {
     uint32_t id {};
     uint8_t qos {};
@@ -153,6 +162,7 @@ struct DeviceConfig {
     std::string type;
     MemoryConfig memory;
     std::optional<DebugConfig> debug;
+    std::optional<PcapConfig> pcap;
     std::vector<ComParameter> comParameters;
     std::vector<BusInterfaceConfig> interfaces;
     std::vector<MappedDeviceConfig> mappedDevices;
