@@ -186,6 +186,7 @@ void DiagnosticManager::writePacketToPcap(const uint8_t* data, std::size_t len, 
 
     m_pcapFile.write(reinterpret_cast<const char*>(header), sizeof(header));
     m_pcapFile.write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(len));
+    m_pcapFile.flush();
     if (!m_pcapFile.good()) {
         log(Severity::ERROR, "PCAP", "Failed to write packet to capture file");
         return;

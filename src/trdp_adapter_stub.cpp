@@ -50,6 +50,11 @@ int TrdpAdapter::subscribePd(engine::pd::PdTelegramRuntime& pd)
 
 int TrdpAdapter::sendPdData(const engine::pd::PdTelegramRuntime& pd, const std::vector<uint8_t>& payload)
 {
+    const int rc = m_pdSendResult.value_or(0);
+    if (rc != 0) {
+        recordError(static_cast<uint32_t>(-rc), &TrdpErrorCounters::pdSendErrors);
+        return rc;
+    }
     std::lock_guard<std::mutex> lk(m_errMtx);
     m_lastPdPayload = payload;
     (void)pd;
@@ -73,6 +78,11 @@ void TrdpAdapter::handlePdCallback(uint32_t comId, const uint8_t* data, std::siz
 
 int TrdpAdapter::sendMdRequest(engine::md::MdSessionRuntime& session, const std::vector<uint8_t>& payload)
 {
+    const int rc = m_mdRequestResult.value_or(0);
+    if (rc != 0) {
+        recordError(static_cast<uint32_t>(-rc), &TrdpErrorCounters::mdRequestErrors);
+        return rc;
+    }
     std::lock_guard<std::mutex> lk(m_errMtx);
     m_requestedSessions.push_back(session.sessionId);
     m_lastMdRequestPayload = payload;
@@ -86,6 +96,11 @@ int TrdpAdapter::sendMdRequest(engine::md::MdSessionRuntime& session, const std:
 
 int TrdpAdapter::sendMdReply(engine::md::MdSessionRuntime& session, const std::vector<uint8_t>& payload)
 {
+    const int rc = m_mdReplyResult.value_or(0);
+    if (rc != 0) {
+        recordError(static_cast<uint32_t>(-rc), &TrdpErrorCounters::mdReplyErrors);
+        return rc;
+    }
     std::lock_guard<std::mutex> lk(m_errMtx);
     m_repliedSessions.push_back(session.sessionId);
     m_lastMdReplyPayload = payload;
@@ -157,6 +172,24 @@ std::vector<uint32_t> TrdpAdapter::getRepliedSessions() const
 {
     std::lock_guard<std::mutex> lk(m_errMtx);
     return m_repliedSessions;
+}
+
+void TrdpAdapter::setPdSendResult(int rc)
+{
+    std::lock_guard<std::mutex> lk(m_errMtx);
+    m_pdSendResult = rc;
+}
+
+void TrdpAdapter::setMdRequestResult(int rc)
+{
+    std::lock_guard<std::mutex> lk(m_errMtx);
+    m_mdRequestResult = rc;
+}
+
+void TrdpAdapter::setMdReplyResult(int rc)
+{
+    std::lock_guard<std::mutex> lk(m_errMtx);
+    m_mdReplyResult = rc;
 }
 
 } // namespace trdp_sim::trdp

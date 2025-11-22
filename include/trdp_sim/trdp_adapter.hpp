@@ -55,6 +55,11 @@ public:
     std::vector<uint32_t> getRequestedSessions() const;
     std::vector<uint32_t> getRepliedSessions() const;
 
+    // Test helpers to simulate network failures
+    void setPdSendResult(int rc);
+    void setMdRequestResult(int rc);
+    void setMdReplyResult(int rc);
+
 private:
     EngineContext& m_ctx;
     mutable std::mutex m_errMtx;
@@ -65,6 +70,9 @@ private:
     std::vector<uint8_t> m_lastMdReplyPayload;
     std::vector<uint32_t> m_requestedSessions;
     std::vector<uint32_t> m_repliedSessions;
+    std::optional<int> m_pdSendResult;
+    std::optional<int> m_mdRequestResult;
+    std::optional<int> m_mdReplyResult;
 
     void recordError(uint32_t code, uint64_t TrdpErrorCounters::*member);
 };

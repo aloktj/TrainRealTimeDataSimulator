@@ -84,7 +84,8 @@ Unit tests are enabled by default when configuring CMake. From the build directo
 ```bash
 cmake -S . -B build -DTRDP_USE_STUBS=ON -DTRDP_ENABLE_TESTS=ON
 cmake --build build --target trdp-simulator-tests
-cd build && ctest
+ctest --test-dir build --output-on-failure
 ```
 
-GoogleTest sources are automatically fetched by CMake; use `ctest -R <pattern>` to run a subset.
+Tests are wired into CTest via `gtest_discover_tests`, so `ctest` will pick up any new files under `tests/`. GoogleTest sources are
+automatically fetched by CMake; use `ctest -R <pattern>` to run a subset.
