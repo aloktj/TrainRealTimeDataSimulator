@@ -16,7 +16,7 @@
 #elif __has_include(<tau_api.h>)
 #include <tau_api.h>
 #else
-#error "TRDP headers not found during compilation. Ensure TRDP include path is configured or enable TRDP_USE_STUBS."
+#include "trdp_stub.hpp"
 #endif
 
 #include "config_manager.hpp"

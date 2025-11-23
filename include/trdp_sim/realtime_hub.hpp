@@ -1,6 +1,7 @@
 #pragma once
 
 #include <drogon/WebSocketConnection.h>
+#include <trantor/net/EventLoop.h>
 
 #include <mutex>
 #include <string>
@@ -35,8 +36,8 @@ namespace realtime
 
         std::mutex                                             m_mtx;
         std::unordered_map<std::string, auth::Session>         m_connections;
-        std::unordered_map<std::string, drogon::WebSocketConnectionWeakPtr> m_connRefs;
-        drogon::TimerId                                        m_timer;
+        std::unordered_map<std::string, std::weak_ptr<drogon::WebSocketConnection>> m_connRefs;
+        trantor::TimerId                                       m_timer{};
     };
 
 } // namespace realtime

@@ -57,7 +57,7 @@ namespace data
         std::vector<ValueCell> values;
         bool                   locked{false};
         bool                   isOutgoing{false};
-        std::mutex             mtx;
+        mutable std::mutex     mtx;
     };
 
 } // namespace data

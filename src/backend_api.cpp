@@ -15,6 +15,7 @@
 #include <nlohmann/json.hpp>
 
 #include "data_marshalling.hpp"
+#include "trdp_adapter.hpp"
 #include "xml_loader.hpp"
 
 namespace api
@@ -425,7 +426,7 @@ namespace api
             return oss.str();
         };
 
-        auto dataSetToJson = [](const data::DataSetInstance* inst)
+        auto dataSetToJson = [&bytesToHex](const data::DataSetInstance* inst)
         {
             nlohmann::json json;
             if (!inst)

@@ -13,7 +13,16 @@
 #include <mutex>
 #include <optional>
 #include <sys/select.h>
+#include <type_traits>
 #include <vector>
+
+#ifndef TRDP_TO_ZERO
+#define TRDP_TO_ZERO static_cast<TRDP_TO_BEHAVIOR_T>(0)
+#endif
+
+#ifndef TRDP_TO_KEEP_LAST_VALUE
+#define TRDP_TO_KEEP_LAST_VALUE static_cast<TRDP_TO_BEHAVIOR_T>(1)
+#endif
 
 #if __has_include(<trdp_if_light.h>)
 #include <trdp_if_light.h>
@@ -22,6 +31,9 @@
 #elif __has_include(<tau_api.h>)
 #include <tau_api.h>
 #endif
+
+#include "md_engine.hpp"
+#include "pd_engine.hpp"
 
 namespace trdp_sim::trdp
 {
@@ -49,7 +61,7 @@ namespace trdp_sim::trdp
             return inet_addr(ip.c_str());
         }
 
-        void pdCallback(void* refCon, TRDP_APP_SESSION_T /*session*/, const TRDP_PD_INFO_T* info, const UINT8* data,
+        void pdCallback(void* refCon, TRDP_APP_SESSION_T /*session*/, const TRDP_PD_INFO_T* info, UINT8* data,
                         UINT32 dataSize)
         {
             auto* adapter = static_cast<TrdpAdapter*>(refCon);
@@ -95,6 +107,19 @@ namespace trdp_sim::trdp
 
     } // namespace
 
+    namespace
+    {
+        template <typename T, typename = void>
+        struct HasHostNameField : std::false_type
+        {
+        };
+
+        template <typename T>
+        struct HasHostNameField<T, std::void_t<decltype(T::hostName)>> : std::true_type
+        {
+        };
+    } // namespace
+
     TrdpAdapter::TrdpAdapter(EngineContext& ctx) : m_ctx(ctx) {}
 
     bool TrdpAdapter::init()
@@ -104,13 +129,39 @@ namespace trdp_sim::trdp
         TRDP_PD_CONFIG_T      pdCfg{};
         TRDP_MD_CONFIG_T      mdCfg{};
         TRDP_PROCESS_CONFIG_T processCfg{};
-        processCfg.szHostname = const_cast<char*>(m_ctx.deviceConfig.hostName.c_str());
+        if constexpr (HasHostNameField<TRDP_PROCESS_CONFIG_T>::value)
+        {
+            std::strncpy(processCfg.hostName, m_ctx.deviceConfig.hostName.c_str(), sizeof(processCfg.hostName) - 1U);
+            processCfg.hostName[sizeof(processCfg.hostName) - 1U] = '\0';
+        }
 
-        TRDP_ERR_T err = tlc_init(&m_ctx.trdpSession, &memCfg, nullptr, &pdCfg, &mdCfg, &processCfg);
+        TRDP_ERR_T err{TRDP_NO_ERR};
+        if constexpr (std::is_invocable_r_v<TRDP_ERR_T, decltype(&tlc_init), TRDP_PRINT_DBG_T, void*,
+                                                 const TRDP_MEM_CONFIG_T*>)
+        {
+            err = tlc_init(nullptr, nullptr, &memCfg);
+        }
+        else
+        {
+            err =
+#ifdef TRDP_ERR_GENERIC
+                TRDP_ERR_GENERIC;
+#else
+                static_cast<TRDP_ERR_T>(-1);
+#endif
+        }
         if (err != TRDP_NO_ERR)
         {
             recordError(static_cast<uint32_t>(err), &TrdpErrorCounters::initErrors);
             std::cerr << "TRDP tlc_init failed: " << err << std::endl;
+            return false;
+        }
+
+        err = tlc_openSession(&m_ctx.trdpSession, 0, 0, nullptr, &pdCfg, &mdCfg, &processCfg);
+        if (err != TRDP_NO_ERR)
+        {
+            recordError(static_cast<uint32_t>(err), &TrdpErrorCounters::initErrors);
+            std::cerr << "TRDP tlc_openSession failed: " << err << std::endl;
             return false;
         }
 
@@ -121,7 +172,8 @@ namespace trdp_sim::trdp
     {
         if (m_ctx.trdpSession)
         {
-            tlc_terminate(m_ctx.trdpSession);
+            tlc_closeSession(m_ctx.trdpSession);
+            tlc_terminate();
             m_ctx.trdpSession = nullptr;
         }
     }
@@ -214,13 +266,6 @@ namespace trdp_sim::trdp
         if (!m_ctx.trdpSession || !pd.cfg || !pd.pdComCfg)
             return -1;
 
-        TRDP_PD_CONFIG_T pdCfg{};
-        pdCfg.timeout = pd.cfg->pdParam ? pd.cfg->pdParam->timeoutUs : pd.pdComCfg->timeoutUs;
-        pdCfg.toBehavior =
-            (pd.cfg->pdParam && pd.cfg->pdParam->validityBehavior == config::PdComParameter::ValidityBehavior::ZERO)
-                ? TRDP_TO_ZERO
-                : TRDP_TO_KEEP_LAST_VALUE;
-
         TRDP_IP_ADDR_T srcIp = toIp(pd.ifaceCfg->hostIp);
 
         if (pd.pubChannels.empty())
@@ -235,8 +280,8 @@ namespace trdp_sim::trdp
             if (ch.handle)
                 continue;
 
-            TRDP_ERR_T err = tlp_publish(m_ctx.trdpSession, &ch.handle, srcIp, ch.destIp, pd.cfg->comId, 0, 0, &pdCfg,
-                                         nullptr, 0);
+            TRDP_ERR_T err = tlp_publish(m_ctx.trdpSession, &ch.handle, this, &pdCallback, 0, pd.cfg->comId, 0, 0,
+                                         srcIp, ch.destIp, 0, 0, 0, nullptr, nullptr, 0);
 
             if (err != TRDP_NO_ERR)
             {
@@ -256,18 +301,18 @@ namespace trdp_sim::trdp
         if (!m_ctx.trdpSession || !pd.cfg || !pd.pdComCfg)
             return -1;
 
+        TRDP_IP_ADDR_T srcIp  = 0; // wildcard
+        TRDP_IP_ADDR_T destIp = toIp(pd.ifaceCfg->hostIp);
+
         TRDP_PD_CONFIG_T pdCfg{};
-        pdCfg.timeout = pd.cfg->pdParam ? pd.cfg->pdParam->timeoutUs : pd.pdComCfg->timeoutUs;
         pdCfg.toBehavior =
             (pd.cfg->pdParam && pd.cfg->pdParam->validityBehavior == config::PdComParameter::ValidityBehavior::ZERO)
                 ? TRDP_TO_ZERO
                 : TRDP_TO_KEEP_LAST_VALUE;
+        pdCfg.timeout = pd.cfg->pdParam ? pd.cfg->pdParam->timeoutUs : pd.pdComCfg->timeoutUs;
 
-        TRDP_IP_ADDR_T srcIp  = 0; // wildcard
-        TRDP_IP_ADDR_T destIp = toIp(pd.ifaceCfg->hostIp);
-
-        TRDP_ERR_T err = tlp_subscribe(m_ctx.trdpSession, &pd.subHandle, srcIp, destIp, pd.cfg->comId, 0, 0, &pdCfg,
-                                       &pdCallback, this);
+        TRDP_ERR_T err = tlp_subscribe(m_ctx.trdpSession, &pd.subHandle, this, &pdCallback, 0, pd.cfg->comId, 0, 0,
+                                       srcIp, 0, destIp, 0, nullptr, pdCfg.timeout, pdCfg.toBehavior);
 
         if (err != TRDP_NO_ERR)
         {
@@ -472,10 +517,6 @@ namespace trdp_sim::trdp
             m_lastMdReplyPayload = payload;
         }
 
-        TRDP_IP_ADDR_T destIp = 0;
-        if (!session.telegram->destinations.empty())
-            destIp = toIp(session.telegram->destinations.front().uri);
-
         TRDP_ERR_T err = tlm_reply(
             m_ctx.trdpSession, &session.trdpSessionId, session.telegram->comId, 0, nullptr,
             const_cast<UINT8*>(payload.empty() ? nullptr : payload.data()), static_cast<UINT32>(payload.size()), nullptr);
@@ -516,7 +557,7 @@ namespace trdp_sim::trdp
 
         TRDP_UUID_T trdpSessionId{};
         if (info)
-            trdpSessionId = info->sessionId;
+            std::memcpy(&trdpSessionId, &info->sessionId, sizeof(TRDP_UUID_T));
 
         engine::md::MdSessionRuntime* sess = nullptr;
         for (auto& [_, candidate] : m_ctx.mdSessions)
@@ -553,8 +594,8 @@ namespace trdp_sim::trdp
         }
 
         struct timeval tv;
-        tv.tv_sec  = interval.tvSec;
-        tv.tv_usec = interval.tvUsec;
+        tv.tv_sec  = interval.tv_sec;
+        tv.tv_usec = interval.tv_usec;
 
         int rv = select(noOfDesc + 1, &rfds, nullptr, nullptr, &tv);
         if (rv < 0)
