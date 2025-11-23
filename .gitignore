@@ -32,6 +32,13 @@
 *.a
 *.lib
 
+# Frontend dependencies
+node_modules/
+web/node_modules/
+
+# Build output
+build/
+
 # Executables
 *.exe
 *.out
