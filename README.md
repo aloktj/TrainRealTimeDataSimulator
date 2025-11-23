@@ -66,6 +66,10 @@ You can also let the helper script wire this up by passing `--use-tcnopen`:
 ./scripts/setup-trdp-simulator.sh --use-tcnopen
 ```
 
+When running against the real stack, make sure the device XML references an IP address/nic pair that exists on your system. The
+default `config/trdp.xml` now binds to loopback (`127.0.0.1`/`lo`) so the TRDP sockets can open cleanly without extra network
+setup.
+
 Configuration will fail early if the submodule is missing while `TRDP_USE_TCNOPEN` is enabled.
 
 ## Running locally
