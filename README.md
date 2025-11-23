@@ -60,6 +60,12 @@ cmake -S . -B build \
 cmake --build build --target trdp-simulator
 ```
 
+You can also let the helper script wire this up by passing `--use-tcnopen`:
+
+```bash
+./scripts/setup-trdp-simulator.sh --use-tcnopen
+```
+
 Configuration will fail early if the submodule is missing while `TRDP_USE_TCNOPEN` is enabled.
 
 ## Running locally
