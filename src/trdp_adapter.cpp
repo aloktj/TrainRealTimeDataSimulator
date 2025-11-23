@@ -61,7 +61,7 @@ namespace trdp_sim::trdp
             return inet_addr(ip.c_str());
         }
 
-        void pdCallback(void* refCon, TRDP_APP_SESSION_T /*session*/, const TRDP_PD_INFO_T* info, const UINT8* data,
+        void pdCallback(void* refCon, TRDP_APP_SESSION_T /*session*/, const TRDP_PD_INFO_T* info, UINT8* data,
                         UINT32 dataSize)
         {
             auto* adapter = static_cast<TrdpAdapter*>(refCon);
