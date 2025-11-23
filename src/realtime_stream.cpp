@@ -49,6 +49,18 @@ void RealtimeStream::handleConnectionClosed(const drogon::WebSocketConnectionPtr
 void RealtimeStream::handleMessage(const drogon::WebSocketConnectionPtr& conn, std::string&& message,
                                    const drogon::WebSocketMessageType& type)
 {
+    handleMessageImpl(conn, message, type);
+}
+
+void RealtimeStream::handleMessage(const drogon::WebSocketConnectionPtr& conn, const std::string& message,
+                                   const drogon::WebSocketMessageType& type)
+{
+    handleMessageImpl(conn, message, type);
+}
+
+void RealtimeStream::handleMessageImpl(const drogon::WebSocketConnectionPtr& conn, const std::string& message,
+                                       const drogon::WebSocketMessageType& type)
+{
     if (type == drogon::WebSocketMessageType::Text && s_hub)
         s_hub->handleClientMessage(conn, message);
 }

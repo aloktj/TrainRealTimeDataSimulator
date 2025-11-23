@@ -4,6 +4,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <memory>
 
 namespace realtime
 {
@@ -24,7 +25,7 @@ namespace realtime
     {
         if (m_timer)
             drogon::app().getLoop()->invalidateTimer(m_timer);
-        m_timer = drogon::TimerId();
+        m_timer = trantor::TimerId();
     }
 
     void RealtimeHub::registerConnection(const drogon::WebSocketConnectionPtr& conn, const std::string& token)
