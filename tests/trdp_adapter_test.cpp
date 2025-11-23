@@ -15,23 +15,23 @@
 namespace
 {
 
-    trdp_sim::EngineContext buildContextFromSample()
+    std::unique_ptr<trdp_sim::EngineContext> buildContextFromSample()
     {
-        config::ConfigManager   mgr;
-        trdp_sim::EngineContext ctx;
-        const auto              configPath =
+        config::ConfigManager               mgr;
+        auto                                ctx = std::make_unique<trdp_sim::EngineContext>();
+        const auto                          configPath =
             std::filesystem::path(__FILE__).parent_path().parent_path() / "config" / "sample_ci_device.xml";
-        ctx.deviceConfig = mgr.loadDeviceConfigFromXml(configPath.string());
-        mgr.validateDeviceConfig(ctx.deviceConfig);
+        ctx->deviceConfig = mgr.loadDeviceConfigFromXml(configPath.string());
+        mgr.validateDeviceConfig(ctx->deviceConfig);
 
-        auto defs = mgr.buildDataSetDefs(ctx.deviceConfig);
+        auto defs = mgr.buildDataSetDefs(ctx->deviceConfig);
         for (auto& def : defs)
         {
-            ctx.dataSetDefs[def.id] = def;
-            auto inst               = std::make_unique<data::DataSetInstance>();
-            inst->def               = &ctx.dataSetDefs[def.id];
+            ctx->dataSetDefs[def.id] = def;
+            auto inst                = std::make_unique<data::DataSetInstance>();
+            inst->def                = &ctx->dataSetDefs[def.id];
             inst->values.resize(def.elements.size());
-            ctx.dataSetInstances[def.id] = std::move(inst);
+            ctx->dataSetInstances[def.id] = std::move(inst);
         }
         return ctx;
     }
@@ -57,10 +57,10 @@ class TrdpAdapterEngineHarness : public ::testing::Test
 {
   protected:
     TrdpAdapterEngineHarness()
-        : ctx(buildContextFromSample()), adapter(ctx), pdEngine(ctx, adapter), mdEngine(ctx, adapter)
+        : ctx(buildContextFromSample()), adapter(*ctx), pdEngine(*ctx, adapter), mdEngine(*ctx, adapter)
     {
-        ctx.pdEngine = &pdEngine;
-        ctx.mdEngine = &mdEngine;
+        ctx->pdEngine = &pdEngine;
+        ctx->mdEngine = &mdEngine;
     }
 
     void SetUp() override
@@ -75,10 +75,10 @@ class TrdpAdapterEngineHarness : public ::testing::Test
         mdEngine.stop();
     }
 
-    trdp_sim::EngineContext     ctx;
-    trdp_sim::trdp::TrdpAdapter adapter;
-    engine::pd::PdEngine        pdEngine;
-    engine::md::MdEngine        mdEngine;
+    std::unique_ptr<trdp_sim::EngineContext> ctx;
+    trdp_sim::trdp::TrdpAdapter              adapter;
+    engine::pd::PdEngine                     pdEngine;
+    engine::md::MdEngine                     mdEngine;
 };
 
 TEST_F(TrdpAdapterEngineHarness, PdPublishingMarshalsDataset)
@@ -124,15 +124,18 @@ TEST_F(TrdpAdapterEngineHarness, CallbacksPopulateDatasets)
     auto sessionId = mdEngine.createRequestSession(2001);
     ASSERT_NE(sessionId, 0u);
     const std::array<uint8_t, 5> mdPayload{0x07, 0xEF, 0xBE, 0xAD, 0xDE};
+    auto                        opt = mdEngine.getSession(sessionId);
+    ASSERT_TRUE(opt.has_value());
+    auto* session = *opt;
     TRDP_MD_INFO_T info{};
-    info.sessionId = sessionId;
+    info.sessionId = session->trdpSessionId;
     info.comId     = 2001;
     info.protocol  = TRDP_MD_TCP;
     adapter.handleMdCallback(&info, mdPayload.data(), mdPayload.size());
 
-    auto opt = mdEngine.getSession(sessionId);
+    opt = mdEngine.getSession(sessionId);
     ASSERT_TRUE(opt.has_value());
-    auto* session = *opt;
+    session = *opt;
     ASSERT_NE(session->responseData, nullptr);
     std::lock_guard<std::mutex> dsLock(session->responseData->mtx);
     EXPECT_TRUE(session->responseData->values[0].defined);
