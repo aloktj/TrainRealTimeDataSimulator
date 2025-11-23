@@ -17,6 +17,7 @@ option(TRDP_ENABLE_TESTS "Build unit tests" ON)
 option(TRDP_WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
 option(TRDP_PI_OPTIMIZED "Enable Raspberry Pi-specific tuning flags" OFF)
 set(TRDP_SANITIZER "none" CACHE STRING "Sanitizer preset (none, address, undefined, thread)")
+option(TRDP_USE_TCNOPEN "Build TRDP from the TCNopen submodule" OFF)
 set(TRDP_INCLUDE_DIR "" CACHE PATH "Path to TRDP headers (used when TRDP_USE_STUBS=OFF)")
 set(TRDP_LIB_PATH "" CACHE FILEPATH "Path to TRDP static/shared library (used when TRDP_USE_STUBS=OFF)")
 
@@ -50,9 +51,27 @@ find_package(OpenSSL REQUIRED)
 
 set(TRDP_SIM_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include")
 set(TRDP_SIM_SRC_DIR     "${CMAKE_CURRENT_SOURCE_DIR}/src")
+set(TRDP_INCLUDE_DIR_FOUND "")
 
 # TRDP discovery (skipped when stubbing)
-if(NOT TRDP_USE_STUBS)
+set(TRDP_LIB_TARGET "")
+if(TRDP_USE_TCNOPEN)
+    set(TRDP_USE_STUBS OFF CACHE BOOL "" FORCE)
+    set(_tcnopen_dir "${CMAKE_CURRENT_SOURCE_DIR}/external/TCNopen")
+    if(NOT EXISTS "${_tcnopen_dir}/CMakeLists.txt")
+        message(FATAL_ERROR "TCNopen submodule not found. Run `git submodule update --init --recursive`." )
+    endif()
+    add_subdirectory(${_tcnopen_dir})
+    if(TARGET trdp)
+        set(TRDP_LIB_TARGET trdp)
+    elseif(TARGET TCNopen::trdp)
+        set(TRDP_LIB_TARGET TCNopen::trdp)
+    else()
+        message(FATAL_ERROR "TCNopen is enabled but no `trdp` library target was exported.")
+    endif()
+endif()
+
+if(NOT TRDP_USE_STUBS AND NOT TRDP_LIB_TARGET)
     find_path(TRDP_INCLUDE_DIR_FOUND
         NAMES trdp_if_light.h trdp_if.h tau_api.h
         PATHS ${TRDP_INCLUDE_DIR} /usr/local/include /usr/include)
@@ -71,6 +90,7 @@ if(NOT TRDP_USE_STUBS)
     set_target_properties(trdp PROPERTIES
         IMPORTED_LOCATION "${TRDP_LIB_FOUND}"
         INTERFACE_INCLUDE_DIRECTORIES "${TRDP_INCLUDE_DIR_FOUND}")
+    set(TRDP_LIB_TARGET trdp)
 endif()
 
 # -------------------------
@@ -117,7 +137,10 @@ else()
 endif()
 
 if(NOT TRDP_USE_STUBS)
-    target_link_libraries(trdp-simulator-core PRIVATE trdp)
+    if(NOT TRDP_LIB_TARGET)
+        message(FATAL_ERROR "No TRDP library target configured. Check TRDP settings.")
+    endif()
+    target_link_libraries(trdp-simulator-core PRIVATE ${TRDP_LIB_TARGET})
 else()
     target_compile_definitions(trdp-simulator-core PUBLIC TRDP_USE_STUBS)
 endif()
