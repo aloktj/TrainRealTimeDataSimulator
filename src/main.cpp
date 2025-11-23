@@ -316,6 +316,19 @@ int main(int argc, char* argv[])
     app().addListener(bindHost, bindPort);
     app().setThreadNum(std::max(2u, std::thread::hardware_concurrency()));
 
+    // Friendly root handler
+    app().registerHandler(
+        "/",
+        [&jsonResponse, &checkThrottle](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            if (!checkThrottle(req, cb))
+                return;
+            cb(jsonResponse({{"message", "TRDP simulator is running"},
+                             {"docs", "See /api/diag/metrics or /api/diag/events for runtime details."}},
+                            k200OK));
+        },
+        {Get, Head});
+
     // Auth login
     app().registerHandler(
         "/api/auth/login",
