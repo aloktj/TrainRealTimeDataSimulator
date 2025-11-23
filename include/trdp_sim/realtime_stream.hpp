@@ -8,7 +8,8 @@
 class RealtimeStream : public drogon::WebSocketController<RealtimeStream>
 {
   public:
-    RealtimeStream() = default;
+    RealtimeStream();
+    ~RealtimeStream() override = default;
 
     static void bootstrap(auth::AuthManager* auth, realtime::RealtimeHub* hub);
 
@@ -19,9 +20,9 @@ class RealtimeStream : public drogon::WebSocketController<RealtimeStream>
     // overloads for both rvalue and const reference message arguments so at least one matches
     // the interface in use without relying on specific version macros.
     void handleMessage(const drogon::WebSocketConnectionPtr& conn, std::string&& message,
-                      const drogon::WebSocketMessageType& type);
+                      const drogon::WebSocketMessageType& type) override;
     void handleMessage(const drogon::WebSocketConnectionPtr& conn, const std::string& message,
-                      const drogon::WebSocketMessageType& type);
+                      const drogon::WebSocketMessageType& type) override;
 
     WS_PATH_LIST_BEGIN
     WS_PATH_ADD("/api/ws/realtime", drogon::Get, drogon::Options);

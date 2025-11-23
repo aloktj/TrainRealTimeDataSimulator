@@ -5,6 +5,8 @@
 auth::AuthManager*     RealtimeStream::s_auth = nullptr;
 realtime::RealtimeHub* RealtimeStream::s_hub  = nullptr;
 
+RealtimeStream::RealtimeStream() = default;
+
 void RealtimeStream::bootstrap(auth::AuthManager* auth, realtime::RealtimeHub* hub)
 {
     s_auth = auth;
