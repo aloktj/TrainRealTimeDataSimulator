@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiGet } from '../hooks/useApi';
 
 function StatBar({ label, value, max = 1000, unit = 'us' }) {
@@ -21,10 +21,42 @@ export default function EventBrowser() {
   const [error, setError] = useState(null);
   const [severity, setSeverity] = useState('ALL');
   const [since, setSince] = useState('');
+  const lastEventRef = useRef(null);
 
-  const load = async () => {
+  const fetchEvents = async () => {
     try {
-      setEvents(await apiGet('/api/diag/events?max=300'));
+      const params = new URLSearchParams({ max: '200' });
+      if (lastEventRef.current) {
+        params.set('sinceMs', String(lastEventRef.current));
+      }
+      const incoming = await apiGet(`/api/diag/events?${params.toString()}`);
+      if (Array.isArray(incoming) && incoming.length) {
+        const newest = incoming[0].timestampMs ?? lastEventRef.current;
+        if (newest) {
+          lastEventRef.current = Math.max(lastEventRef.current ?? 0, newest);
+        }
+        setEvents((prev) => {
+          const merged = [...incoming, ...prev];
+          const deduped = [];
+          const seen = new Set();
+          for (const ev of merged) {
+            const key = `${ev.timestampMs}-${ev.component}-${ev.message}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            deduped.push(ev);
+            if (deduped.length >= 400) break;
+          }
+          return deduped;
+        });
+      }
+      setError(null);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const fetchMetrics = async () => {
+    try {
       setMetrics(await apiGet('/api/diag/metrics'));
       setError(null);
     } catch (err) {
@@ -33,9 +65,14 @@ export default function EventBrowser() {
   };
 
   useEffect(() => {
-    load();
-    const id = setInterval(load, 5000);
-    return () => clearInterval(id);
+    fetchEvents();
+    fetchMetrics();
+    const eventsTimer = setInterval(fetchEvents, 10000);
+    const metricsTimer = setInterval(fetchMetrics, 12000);
+    return () => {
+      clearInterval(eventsTimer);
+      clearInterval(metricsTimer);
+    };
   }, []);
 
   const filteredEvents = useMemo(() => {

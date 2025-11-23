@@ -50,7 +50,7 @@ The GitHub CI workflow (`cross-build-arm64`) runs the same steps to ensure the c
 ./scripts/run-local.sh
 ```
 
-- Builds (if needed) and starts Drogon on `0.0.0.0:8848`.
+- Builds (if needed) and starts Drogon on `0.0.0.0:8000`.
 - To test a different XML without committing changes, pass `--config path/to/other.xml`; the script copies it onto `config/trdp.xml` for the run.
 - To validate with a vendor TRDP SDK, add `--use-trdp --trdp-lib /path/libtrdp.a --trdp-include /path/include`.
 

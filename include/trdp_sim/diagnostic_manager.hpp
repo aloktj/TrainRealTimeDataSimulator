@@ -143,6 +143,7 @@ namespace diag
                  const std::optional<std::string>& extraJson = std::nullopt);
 
         std::vector<Event> fetchRecent(std::size_t maxEvents);
+        std::vector<Event> fetchSince(const std::chrono::system_clock::time_point& since, std::size_t maxEvents);
         MetricsSnapshot    getMetrics() const;
         void               updateLogConfig(const LogConfig& cfg);
 

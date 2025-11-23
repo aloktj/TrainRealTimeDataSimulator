@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_URL=${BASE_URL:-"http://localhost:8848"}
+BASE_URL=${BASE_URL:-"http://localhost:8000"}
 COM_ID=${COM_ID:-1001}
 DATASET_ID=${DATASET_ID:-1}
 

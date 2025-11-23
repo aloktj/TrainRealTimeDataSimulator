@@ -265,7 +265,7 @@ def write_report(report: Dict[str, Any], json_path: Path, text_path: Optional[Pa
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run scripted simulator scenarios")
-    parser.add_argument("--base-url", default="http://127.0.0.1:8848", help="Simulator base URL")
+    parser.add_argument("--base-url", default="http://127.0.0.1:8000", help="Simulator base URL")
     parser.add_argument("--json-scenario", type=Path, help="Path to JSON scenario description")
     parser.add_argument("--python-hook", type=Path, help="Path to Python hook implementing run(client)")
     parser.add_argument("--lua-hook", type=Path, help="Path to Lua hook that prints JSON results")

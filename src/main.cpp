@@ -25,6 +25,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include <trantor/utils/Logger.h>
+
 using namespace drogon;
 
 int main(int argc, char* argv[])
@@ -82,6 +84,42 @@ int main(int argc, char* argv[])
             pcapRxOverride = true;
         }
     }
+
+    const auto getEnvOrDefault = [](const std::string& key, const std::string& def) {
+        const char* val = std::getenv(key.c_str());
+        if (val && *val)
+            return std::string(val);
+        return def;
+    };
+
+    const auto getEnv = [](const std::string& key) -> std::optional<std::string> {
+        const char* val = std::getenv(key.c_str());
+        if (val && *val)
+            return std::string(val);
+        return std::nullopt;
+    };
+
+    const auto parseSeverity = [](const std::string& level) {
+        if (level.empty())
+            return diag::Severity::DEBUG;
+
+        char c = static_cast<char>(std::toupper(static_cast<unsigned char>(level.front())));
+        switch (c)
+        {
+        case 'D':
+            return diag::Severity::DEBUG;
+        case 'I':
+            return diag::Severity::INFO;
+        case 'W':
+            return diag::Severity::WARN;
+        case 'E':
+            return diag::Severity::ERROR;
+        case 'F':
+            return diag::Severity::FATAL;
+        default:
+            return diag::Severity::DEBUG;
+        }
+    };
 
     trdp_sim::EngineContext ctx;
 
@@ -162,9 +200,50 @@ int main(int argc, char* argv[])
     if (pcapTxOverride)
         pcapCfg.captureTx = *pcapTxOverride;
 
-    diag::DiagnosticManager diagMgr(ctx, pdEngine, mdEngine, adapter, {}, pcapCfg);
+    const auto parseBoolEnv = [](const std::optional<std::string>& val, bool defaultValue) {
+        if (!val)
+            return defaultValue;
+        auto lowered = *val;
+        std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        return lowered != "0" && lowered != "false" && lowered != "no" && lowered != "off";
+    };
+
+    diag::LogConfig logCfg{};
+    logCfg.minimumSeverity = diag::Severity::DEBUG;
+
+    if (ctx.deviceConfig.debug)
+    {
+        auto dbg               = *ctx.deviceConfig.debug;
+        logCfg.minimumSeverity = parseSeverity(std::string(1, dbg.level));
+        if (!dbg.fileName.empty())
+        {
+            logCfg.filePath         = dbg.fileName;
+            logCfg.maxFileSizeBytes = dbg.fileSize;
+        }
+    }
+
+    if (auto envLevel = getEnv("TRDP_LOG_LEVEL"))
+        logCfg.minimumSeverity = parseSeverity(*envLevel);
+    logCfg.logToStdout = parseBoolEnv(getEnv("TRDP_LOG_STDOUT"), true);
+
+    diag::DiagnosticManager diagMgr(ctx, pdEngine, mdEngine, adapter, logCfg, pcapCfg);
     ctx.diagManager = &diagMgr;
     diagMgr.start();
+
+    auto effectiveLevel = logCfg.minimumSeverity;
+    diagMgr.log(diag::Severity::INFO, "Startup",
+                std::string("Initialized with config ") + ctx.configPath +
+                    ", log level " + (effectiveLevel == diag::Severity::DEBUG
+                                          ? "DEBUG"
+                                          : effectiveLevel == diag::Severity::INFO
+                                                ? "INFO"
+                                                : effectiveLevel == diag::Severity::WARN
+                                                      ? "WARN"
+                                                      : effectiveLevel == diag::Severity::ERROR
+                                                            ? "ERROR"
+                                                            : "FATAL"));
 
     trdp_sim::BackendEngine backend(ctx, pdEngine, mdEngine, diagMgr);
     backend.applyPreloadedConfiguration(ctx.deviceConfig, false);
@@ -303,18 +382,78 @@ int main(int argc, char* argv[])
         }
     };
 
-    auto getEnvOrDefault = [](const std::string& key, const std::string& def) {
-        const char* val = std::getenv(key.c_str());
-        if (val && *val)
-            return std::string(val);
-        return def;
+    const std::string bindHost = getEnvOrDefault("TRDP_HTTP_HOST", "0.0.0.0");
+    const uint16_t    bindPort = static_cast<uint16_t>(std::stoi(getEnvOrDefault("TRDP_HTTP_PORT", "8000")));
+
+    std::optional<std::filesystem::path> frontendRoot;
+    std::vector<std::filesystem::path>   frontendCandidates{
+        std::filesystem::current_path() / "web/dist",
     };
 
-    const std::string bindHost = getEnvOrDefault("TRDP_HTTP_HOST", "127.0.0.1");
-    const uint16_t    bindPort = static_cast<uint16_t>(std::stoi(getEnvOrDefault("TRDP_HTTP_PORT", "8848")));
+    std::error_code exeEc;
+    auto            exePath = std::filesystem::canonical(argv[0], exeEc);
+    if (!exeEc)
+    {
+        auto exeDir = exePath.parent_path();
+        frontendCandidates.emplace_back(exeDir.parent_path() / "web/dist");
+        frontendCandidates.emplace_back(exeDir.parent_path() / "share/trdp-simulator/web");
+    }
+
+    frontendCandidates.emplace_back("/usr/share/trdp-simulator/web");
+
+    for (const auto& candidate : frontendCandidates)
+    {
+        auto indexFile = candidate / "index.html";
+        if (std::filesystem::exists(indexFile))
+        {
+            frontendRoot = candidate;
+            break;
+        }
+    }
+
+    if (frontendRoot)
+    {
+        app().setDocumentRoot(frontendRoot->string());
+        diagMgr.log(diag::Severity::INFO, "HTTP",
+                    std::string("Serving UI from ") + frontendRoot->string());
+    }
+
+    app().enableGzip(true);
+    app().enableReusePort(true);
+    app().setIdleConnectionTimeout(60);
 
     app().addListener(bindHost, bindPort);
     app().setThreadNum(std::max(2u, std::thread::hardware_concurrency()));
+    app().setLogLevel(trantor::Logger::kTrace);
+    diagMgr.log(diag::Severity::INFO, "HTTP",
+                std::string("Listening on ") + bindHost + ":" + std::to_string(bindPort));
+
+    // Friendly root handler (prefer UI if present)
+    app().registerHandler(
+        "/",
+        [&jsonResponse, &checkThrottle, frontendRoot](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            if (!checkThrottle(req, cb))
+                return;
+
+            if (frontendRoot)
+            {
+                auto indexPath = *frontendRoot / "index.html";
+                if (std::filesystem::exists(indexPath))
+                {
+                    auto resp = HttpResponse::newFileResponse(indexPath.string());
+                    resp->setExpiredTime(0);
+                    cb(resp);
+                    return;
+                }
+            }
+
+            cb(jsonResponse({{"message", "TRDP simulator is running"},
+                             {"docs", "See /api/diag/metrics or /api/diag/events for runtime details."},
+                             {"ui", "UI assets not found; build with `npm --prefix web run build` to enable the web login page."}},
+                            k200OK));
+        },
+        {Get, Head});
 
     // Auth login
     app().registerHandler(
@@ -1003,26 +1142,58 @@ int main(int argc, char* argv[])
             if (!requireRole(req, cb, auth::Role::Viewer))
                 return;
             auto        maxStr    = req->getParameter("max");
+            auto        sinceStr  = req->getParameter("sinceMs");
             std::size_t maxEvents = maxStr.empty() ? 50u : static_cast<std::size_t>(std::stoul(maxStr));
-            cb(jsonResponse(api.getRecentEvents(maxEvents)));
+            std::optional<std::chrono::system_clock::time_point> since;
+            if (!sinceStr.empty())
+            {
+                try
+                {
+                    auto sinceMs = std::stoll(sinceStr);
+                    since        = std::chrono::time_point<std::chrono::system_clock, std::chrono::milliseconds>(
+                        std::chrono::milliseconds(sinceMs));
+                }
+                catch (const std::exception&)
+                {
+                    cb(jsonResponse({{"error", "invalid sinceMs"}}, k400BadRequest));
+                    return;
+                }
+            }
+            cb(jsonResponse(api.getRecentEvents(maxEvents, since)));
         },
         {Get});
 
     app().registerHandler(
         "/api/diag/log/export",
-        [&api, &requireRole](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        [&api, &requireRole, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
         {
             if (!requireRole(req, cb, auth::Role::Viewer))
                 return;
             auto        maxStr    = req->getParameter("max");
+            auto        sinceStr  = req->getParameter("sinceMs");
             std::size_t maxEvents = maxStr.empty() ? 200u : static_cast<std::size_t>(std::stoul(maxStr));
+            std::optional<std::chrono::system_clock::time_point> since;
+            if (!sinceStr.empty())
+            {
+                try
+                {
+                    auto sinceMs = std::stoll(sinceStr);
+                    since        = std::chrono::time_point<std::chrono::system_clock, std::chrono::milliseconds>(
+                        std::chrono::milliseconds(sinceMs));
+                }
+                catch (const std::exception&)
+                {
+                    cb(jsonResponse({{"error", "invalid sinceMs"}}, k400BadRequest));
+                    return;
+                }
+            }
             auto        format    = req->getParameter("format");
             if (format == "json")
             {
                 auto resp = HttpResponse::newHttpResponse();
                 resp->setStatusCode(k200OK);
                 resp->setContentTypeCode(CT_APPLICATION_JSON);
-                resp->setBody(api.getRecentEvents(maxEvents).dump());
+                resp->setBody(api.getRecentEvents(maxEvents, since).dump());
                 cb(resp);
                 return;
             }
@@ -1030,7 +1201,7 @@ int main(int argc, char* argv[])
             auto resp = HttpResponse::newHttpResponse();
             resp->setStatusCode(k200OK);
             resp->setContentTypeCode(CT_TEXT_PLAIN);
-            resp->setBody(api.exportRecentEventsText(maxEvents));
+            resp->setBody(api.exportRecentEventsText(maxEvents, since));
             cb(resp);
         },
         {Get});
