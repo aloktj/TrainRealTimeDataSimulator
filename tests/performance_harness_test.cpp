@@ -12,23 +12,23 @@
 namespace
 {
 
-    trdp_sim::EngineContext buildContextFromConfig()
+    std::unique_ptr<trdp_sim::EngineContext> buildContextFromConfig()
     {
-        config::ConfigManager   mgr;
-        trdp_sim::EngineContext ctx;
-        const auto              configPath =
+        config::ConfigManager               mgr;
+        auto                                ctx = std::make_unique<trdp_sim::EngineContext>();
+        const auto                          configPath =
             std::filesystem::path(__FILE__).parent_path().parent_path() / "config" / "sample_ci_device.xml";
-        ctx.deviceConfig = mgr.loadDeviceConfigFromXml(configPath.string());
-        mgr.validateDeviceConfig(ctx.deviceConfig);
+        ctx->deviceConfig = mgr.loadDeviceConfigFromXml(configPath.string());
+        mgr.validateDeviceConfig(ctx->deviceConfig);
 
-        auto defs = mgr.buildDataSetDefs(ctx.deviceConfig);
+        auto defs = mgr.buildDataSetDefs(ctx->deviceConfig);
         for (auto& def : defs)
         {
-            ctx.dataSetDefs[def.id] = def;
-            auto inst               = std::make_unique<data::DataSetInstance>();
-            inst->def               = &ctx.dataSetDefs[def.id];
+            ctx->dataSetDefs[def.id] = def;
+            auto inst                = std::make_unique<data::DataSetInstance>();
+            inst->def                = &ctx->dataSetDefs[def.id];
             inst->values.resize(def.elements.size());
-            ctx.dataSetInstances[def.id] = std::move(inst);
+            ctx->dataSetInstances[def.id] = std::move(inst);
         }
         return ctx;
     }
@@ -65,12 +65,12 @@ TEST(PerformanceHarnessTest, MeetsPdMdAndWebUiThresholds)
 TEST(ResilienceTest, RecoversMulticastAfterInterfaceReset)
 {
     auto ctx = buildContextFromConfig();
-    ASSERT_FALSE(ctx.deviceConfig.interfaces.empty());
+    ASSERT_FALSE(ctx->deviceConfig.interfaces.empty());
 
-    trdp_sim::trdp::TrdpAdapter adapter(ctx);
+    trdp_sim::trdp::TrdpAdapter adapter(*ctx);
     adapter.init();
 
-    const auto& iface = ctx.deviceConfig.interfaces.front();
+    const auto& iface = ctx->deviceConfig.interfaces.front();
     adapter.applyMulticastConfig(iface);
     auto state = adapter.getMulticastState();
     ASSERT_FALSE(state.empty());
@@ -104,11 +104,11 @@ TEST(ResilienceTest, HandlesMalformedXmlGracefully)
 TEST(ResilienceTest, MalformedDatasetDecodingDoesNotCrash)
 {
     auto ctx = buildContextFromConfig();
-    auto it  = ctx.dataSetInstances.find(3);
-    ASSERT_NE(it, ctx.dataSetInstances.end());
+    auto it  = ctx->dataSetInstances.find(3);
+    ASSERT_NE(it, ctx->dataSetInstances.end());
     auto& inst = *it->second;
 
-    trdp_sim::util::unmarshalDataToDataSet(inst, ctx, nullptr, 0);
+    trdp_sim::util::unmarshalDataToDataSet(inst, *ctx, nullptr, 0);
     for (const auto& cell : inst.values)
     {
         EXPECT_FALSE(cell.defined);

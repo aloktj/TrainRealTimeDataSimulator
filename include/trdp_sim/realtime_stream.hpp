@@ -16,13 +16,8 @@ class RealtimeStream : public drogon::WebSocketController<RealtimeStream>
     void handleNewConnection(const drogon::HttpRequestPtr& req, const drogon::WebSocketConnectionPtr& conn) override;
     void handleConnectionClosed(const drogon::WebSocketConnectionPtr& conn) override;
 
-    // Drogon has changed the websocket message callback signature across versions. Provide
-    // overloads for both rvalue and const reference message arguments so at least one matches
-    // the interface in use without relying on specific version macros.
-    void handleMessage(const drogon::WebSocketConnectionPtr& conn, std::string&& message,
-                      const drogon::WebSocketMessageType& type) override;
-    void handleMessage(const drogon::WebSocketConnectionPtr& conn, const std::string& message,
-                      const drogon::WebSocketMessageType& type) override;
+    void handleNewMessage(const drogon::WebSocketConnectionPtr& conn, std::string&& message,
+                          const drogon::WebSocketMessageType& type) override;
 
     WS_PATH_LIST_BEGIN
     WS_PATH_ADD("/api/ws/realtime", drogon::Get, drogon::Options);

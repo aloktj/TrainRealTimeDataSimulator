@@ -163,7 +163,7 @@ int main(int argc, char* argv[])
 
     auto checkThrottle = [&](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>& cb)
     {
-        const auto clientIp = req->getPeerAddr().first;
+        const auto clientIp = req->getPeerAddr().toIp();
         std::lock_guard<std::mutex> lock(throttleMutex);
         auto& entry = throttleMap[clientIp];
         const auto now = std::chrono::steady_clock::now();
@@ -305,7 +305,7 @@ int main(int argc, char* argv[])
             drogon::Cookie cookie("trdp_session", session->token);
             cookie.setHttpOnly(true);
             cookie.setSecure(true);
-            cookie.setSameSite(drogon::Cookie::SameSite::kStrictMode);
+            cookie.setSameSite(drogon::Cookie::SameSite::kStrict);
             cookie.setPath("/");
             resp->addCookie(cookie);
             cb(resp);
@@ -320,7 +320,7 @@ int main(int argc, char* argv[])
             auto session = requireRole(req, cb, auth::Role::Viewer);
             if (!session)
                 return;
-            authMgr.logout(session->get().token);
+            authMgr.logout(session->token);
             cb(jsonResponse({{"status", "ok"}}, k200OK));
         },
         {Post});
@@ -328,13 +328,14 @@ int main(int argc, char* argv[])
     // Auth session
     app().registerHandler(
         "/api/auth/session",
-        [&authMgr, extractToken, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        [&authMgr, &requireRole, extractToken, jsonResponse](const HttpRequestPtr& req,
+                                                             std::function<void(const HttpResponsePtr&)>&& cb)
         {
             auto session = requireRole(req, cb, auth::Role::Viewer);
             if (!session)
                 return;
-            cb(jsonResponse({{"username", session->get().username}, {"role", auth::roleToString(session->get().role)},
-                             {"theme", session->get().theme}, {"csrfToken", session->get().csrfToken}},
+            cb(jsonResponse(nlohmann::json{{"username", session->username}, {"role", auth::roleToString(session->role)},
+                                           {"theme", session->theme}, {"csrfToken", session->csrfToken}},
                             k200OK));
         },
         {Get});
@@ -342,7 +343,8 @@ int main(int argc, char* argv[])
     // Theme update
     app().registerHandler(
         "/api/ui/theme",
-        [&authMgr, extractToken, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        [&authMgr, &requireRole, extractToken, jsonResponse](const HttpRequestPtr& req,
+                                                             std::function<void(const HttpResponsePtr&)>&& cb)
         {
             auto session = requireRole(req, cb, auth::Role::Viewer);
             if (!session)
@@ -353,7 +355,7 @@ int main(int argc, char* argv[])
                 cb(jsonResponse({{"error", "theme required"}}, k400BadRequest));
                 return;
             }
-            authMgr.updateTheme(session->get().token, (*json)["theme"].asString());
+            authMgr.updateTheme(session->token, (*json)["theme"].asString());
             cb(jsonResponse({{"theme", (*json)["theme"].asString()}}, k200OK));
         },
         {Post});

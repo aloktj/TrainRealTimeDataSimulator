@@ -17,23 +17,23 @@
 
 namespace
 {
-    trdp_sim::EngineContext buildContextFromConfig()
+    std::unique_ptr<trdp_sim::EngineContext> buildContextFromConfig()
     {
-        config::ConfigManager   mgr;
-        trdp_sim::EngineContext ctx;
-        const auto              configPath =
+        config::ConfigManager               mgr;
+        auto                                ctx = std::make_unique<trdp_sim::EngineContext>();
+        const auto                          configPath =
             std::filesystem::path(__FILE__).parent_path().parent_path() / "config" / "sample_ci_device.xml";
-        ctx.deviceConfig = mgr.loadDeviceConfigFromXml(configPath.string());
-        mgr.validateDeviceConfig(ctx.deviceConfig);
+        ctx->deviceConfig = mgr.loadDeviceConfigFromXml(configPath.string());
+        mgr.validateDeviceConfig(ctx->deviceConfig);
 
-        auto defs = mgr.buildDataSetDefs(ctx.deviceConfig);
+        auto defs = mgr.buildDataSetDefs(ctx->deviceConfig);
         for (auto& def : defs)
         {
-            ctx.dataSetDefs[def.id] = def;
-            auto inst               = std::make_unique<data::DataSetInstance>();
-            inst->def               = &ctx.dataSetDefs[def.id];
+            ctx->dataSetDefs[def.id] = def;
+            auto inst                = std::make_unique<data::DataSetInstance>();
+            inst->def                = &ctx->dataSetDefs[def.id];
             inst->values.resize(def.elements.size());
-            ctx.dataSetInstances[def.id] = std::move(inst);
+            ctx->dataSetInstances[def.id] = std::move(inst);
         }
         return ctx;
     }
@@ -51,21 +51,21 @@ TEST(SecurityValidation, AuthManagerHashesPasswords)
 TEST(SecurityValidation, DatasetWritesBounded)
 {
     auto ctx = buildContextFromConfig();
-    trdp_sim::trdp::TrdpAdapter adapter(ctx);
-    engine::pd::PdEngine        pd(ctx, adapter);
-    engine::md::MdEngine        md(ctx, adapter);
-    diag::DiagnosticManager     diagMgr(ctx, pd, md, adapter, {}, {});
-    trdp_sim::BackendEngine     backend(ctx, pd, md, diagMgr);
+    trdp_sim::trdp::TrdpAdapter adapter(*ctx);
+    engine::pd::PdEngine        pd(*ctx, adapter);
+    engine::md::MdEngine        md(*ctx, adapter);
+    diag::DiagnosticManager     diagMgr(*ctx, pd, md, adapter, {}, {});
+    trdp_sim::BackendEngine     backend(*ctx, pd, md, diagMgr);
 
-    ctx.pdEngine    = &pd;
-    ctx.mdEngine    = &md;
-    ctx.diagManager = &diagMgr;
+    ctx->pdEngine    = &pd;
+    ctx->mdEngine    = &md;
+    ctx->diagManager = &diagMgr;
 
     pd.initializeFromConfig();
     md.initializeFromConfig();
-    backend.applyPreloadedConfiguration(ctx.deviceConfig);
+    backend.applyPreloadedConfiguration(ctx->deviceConfig);
 
-    api::BackendApi api(ctx, backend, pd, md, adapter, diagMgr);
+    api::BackendApi api(*ctx, backend, pd, md, adapter, diagMgr);
 
     std::vector<uint8_t> huge(70000u, 0xAA);
     std::string          error;
@@ -81,15 +81,15 @@ TEST(SecurityValidation, DatasetWritesBounded)
 TEST(SecurityValidation, MdTcpDispatchIsRateLimited)
 {
     auto ctx = buildContextFromConfig();
-    if (!ctx.deviceConfig.interfaces.empty())
-        ctx.deviceConfig.interfaces[0].mdCom.protocol = config::MdComParameter::Protocol::TCP;
+    if (!ctx->deviceConfig.interfaces.empty())
+        ctx->deviceConfig.interfaces[0].mdCom.protocol = config::MdComParameter::Protocol::TCP;
 
-    trdp_sim::trdp::TrdpAdapter adapter(ctx);
-    engine::pd::PdEngine        pd(ctx, adapter);
-    engine::md::MdEngine        md(ctx, adapter);
+    trdp_sim::trdp::TrdpAdapter adapter(*ctx);
+    engine::pd::PdEngine        pd(*ctx, adapter);
+    engine::md::MdEngine        md(*ctx, adapter);
 
-    ctx.pdEngine = &pd;
-    ctx.mdEngine = &md;
+    ctx->pdEngine = &pd;
+    ctx->mdEngine = &md;
 
     pd.initializeFromConfig();
     md.initializeFromConfig();
