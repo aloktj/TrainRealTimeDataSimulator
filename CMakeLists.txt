@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.16)
 
 project(trdp-simulator
     VERSION 0.1.0
-    LANGUAGES CXX)
+    LANGUAGES C CXX)
 
 # -------------------------
 # Options
@@ -262,6 +262,14 @@ if(TRDP_ENABLE_TESTS)
 
     include(GoogleTest)
     gtest_discover_tests(trdp-simulator-tests)
+endif()
+
+if(NOT TRDP_USE_STUBS AND TRDP_LIB_TARGET)
+    add_executable(trdp-publish-smoketest tests/trdp_publish_smoketest.c)
+    target_link_libraries(trdp-publish-smoketest PRIVATE ${TRDP_LIB_TARGET})
+    target_include_directories(trdp-publish-smoketest PRIVATE ${TRDP_INCLUDE_DIR_FOUND})
+    target_compile_options(trdp-publish-smoketest PRIVATE ${_warn_flags} ${_san_flags})
+    target_link_options(trdp-publish-smoketest PRIVATE ${_san_flags})
 endif()
 
 # -------------------------
