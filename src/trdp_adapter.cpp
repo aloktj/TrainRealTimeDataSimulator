@@ -281,7 +281,8 @@ namespace trdp_sim::trdp
                 continue;
 
             TRDP_ERR_T err = tlp_publish(m_ctx.trdpSession, &ch.handle, this, &pdCallback, 0, pd.cfg->comId, 0, 0,
-                                         srcIp, ch.destIp, 0, 0, 0, nullptr, nullptr, 0);
+                                         srcIp, ch.destIp, pd.pdComCfg ? pd.pdComCfg->port : 0, 0, 0, nullptr, nullptr,
+                                         0);
 
             if (err != TRDP_NO_ERR)
             {
@@ -312,7 +313,8 @@ namespace trdp_sim::trdp
         pdCfg.timeout = pd.cfg->pdParam ? pd.cfg->pdParam->timeoutUs : pd.pdComCfg->timeoutUs;
 
         TRDP_ERR_T err = tlp_subscribe(m_ctx.trdpSession, &pd.subHandle, this, &pdCallback, 0, pd.cfg->comId, 0, 0,
-                                       srcIp, 0, destIp, 0, nullptr, pdCfg.timeout, pdCfg.toBehavior);
+                                       srcIp, 0, destIp, pd.pdComCfg ? pd.pdComCfg->port : 0, nullptr, pdCfg.timeout,
+                                       pdCfg.toBehavior);
 
         if (err != TRDP_NO_ERR)
         {
