@@ -422,6 +422,43 @@ int main(int argc, char* argv[])
     app().enableReusePort(true);
     app().setIdleConnectionTimeout(60);
 
+    std::optional<std::filesystem::path> frontendRoot;
+    std::vector<std::filesystem::path>   frontendCandidates{
+        std::filesystem::current_path() / "web/dist",
+    };
+
+    std::error_code exeEc;
+    auto            exePath = std::filesystem::canonical(argv[0], exeEc);
+    if (!exeEc)
+    {
+        auto exeDir = exePath.parent_path();
+        frontendCandidates.emplace_back(exeDir.parent_path() / "web/dist");
+        frontendCandidates.emplace_back(exeDir.parent_path() / "share/trdp-simulator/web");
+    }
+
+    frontendCandidates.emplace_back("/usr/share/trdp-simulator/web");
+
+    for (const auto& candidate : frontendCandidates)
+    {
+        auto indexFile = candidate / "index.html";
+        if (std::filesystem::exists(indexFile))
+        {
+            frontendRoot = candidate;
+            break;
+        }
+    }
+
+    if (frontendRoot)
+    {
+        app().setDocumentRoot(frontendRoot->string());
+        diagMgr.log(diag::Severity::INFO, "HTTP",
+                    std::string("Serving UI from ") + frontendRoot->string());
+    }
+
+    app().enableGzip(true);
+    app().enableReusePort(true);
+    app().setIdleConnectionTimeout(60);
+
     app().addListener(bindHost, bindPort);
     app().setThreadNum(std::max(2u, std::thread::hardware_concurrency()));
     app().setLogLevel(trantor::Logger::kTrace);
