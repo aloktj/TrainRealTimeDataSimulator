@@ -9,6 +9,7 @@
 #include "pd_engine.hpp"
 #include "trdp_adapter.hpp"
 #include "xml_loader.hpp"
+#include "config_manager.hpp"
 
 #include <drogon/drogon.h>
 #include <nlohmann/json.hpp>
@@ -20,13 +21,16 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <sstream>
 #include <unordered_map>
+#include <vector>
 
 using namespace drogon;
 
 int main(int argc, char* argv[])
 {
     std::string                configPath = "config/trdp.xml";
+    bool                       configProvided = false;
     std::optional<bool>        pcapEnableOverride;
     std::optional<std::string> pcapFileOverride;
     std::optional<std::size_t> pcapMaxSizeOverride;
@@ -40,6 +44,7 @@ int main(int argc, char* argv[])
         if (arg == "--config" && i + 1 < argc)
         {
             configPath = argv[++i];
+            configProvided = true;
         }
         else if (arg == "--pcap-enable")
         {
@@ -79,6 +84,47 @@ int main(int argc, char* argv[])
     }
 
     trdp_sim::EngineContext ctx;
+
+    // Resolve the configuration path, falling back to locations relative to the executable
+    // and the system install prefix when no explicit path was provided.
+    if (!configProvided)
+    {
+        std::vector<std::filesystem::path> candidates{configPath};
+
+        std::error_code ec;
+        auto            exePath = std::filesystem::canonical(argv[0], ec);
+        if (!ec)
+        {
+            auto exeDir = exePath.parent_path();
+            candidates.emplace_back(exeDir.parent_path() / "config/trdp.xml");
+        }
+
+        candidates.emplace_back("/etc/trdp-simulator/trdp.xml");
+
+        std::string resolvedPath;
+        for (const auto& candidate : candidates)
+        {
+            if (std::filesystem::exists(candidate))
+            {
+                resolvedPath = candidate.string();
+                break;
+            }
+        }
+
+        if (resolvedPath.empty())
+        {
+            std::ostringstream searched;
+            for (std::size_t i = 0; i < candidates.size(); ++i)
+            {
+                if (i > 0)
+                    searched << ", ";
+                searched << candidates[i].string();
+            }
+            throw config::ConfigError(configPath, 0, "Failed to locate configuration XML. Searched: " + searched.str());
+        }
+
+        configPath = resolvedPath;
+    }
 
     config::XmlConfigurationLoader xmlLoader;
     ctx.deviceConfig = xmlLoader.load(configPath);
