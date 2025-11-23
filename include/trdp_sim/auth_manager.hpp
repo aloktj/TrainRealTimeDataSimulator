@@ -18,9 +18,11 @@ namespace auth
     struct Session
     {
         std::string                           token;
+        std::string                           csrfToken;
         std::string                           username;
         Role                                  role{Role::Viewer};
         std::chrono::system_clock::time_point expiresAt{};
+        std::chrono::system_clock::time_point lastAccess{};
         std::string                           theme{"light"};
     };
 
@@ -44,8 +46,10 @@ namespace auth
 
         std::unordered_map<std::string, UserRecord> m_users;
         std::unordered_map<std::string, Session>    m_sessions;
+        std::chrono::minutes                        m_sessionTtl{std::chrono::minutes(30)};
 
         std::string generateToken() const;
+        std::string generateCsrfToken() const;
         Role        parseRole(const std::string& roleStr) const;
         std::string generateSalt() const;
         std::string hashPassword(const std::string& password, const std::string& salt) const;
@@ -53,6 +57,7 @@ namespace auth
         void        addOrUpdateUser(const std::string& username, const std::string& password, Role role);
         void        loadDefaultsFromEnv();
         void        pruneExpired();
+        void        refreshSession(Session& session);
 
       public:
         bool isPasswordHashOpaque(const std::string& username, const std::string& plain) const;

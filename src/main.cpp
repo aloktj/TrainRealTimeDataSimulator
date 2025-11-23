@@ -17,8 +17,10 @@
 #include <cctype>
 #include <cstdlib>
 #include <filesystem>
+#include <mutex>
 #include <optional>
 #include <string>
+#include <unordered_map>
 
 using namespace drogon;
 
@@ -149,6 +151,35 @@ int main(int argc, char* argv[])
         return resp;
     };
 
+    struct ThrottleEntry
+    {
+        std::chrono::steady_clock::time_point windowStart{std::chrono::steady_clock::now()};
+        unsigned                              count{0};
+    };
+    std::unordered_map<std::string, ThrottleEntry> throttleMap;
+    std::mutex                                     throttleMutex;
+    const unsigned                                 throttleLimit = 60;
+    const auto                                     throttleWindow = std::chrono::seconds(10);
+
+    auto checkThrottle = [&](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>& cb)
+    {
+        const auto clientIp = req->getPeerAddr().first;
+        std::lock_guard<std::mutex> lock(throttleMutex);
+        auto& entry = throttleMap[clientIp];
+        const auto now = std::chrono::steady_clock::now();
+        if (now - entry.windowStart > throttleWindow)
+        {
+            entry.windowStart = now;
+            entry.count       = 0;
+        }
+        if (entry.count++ > throttleLimit)
+        {
+            cb(jsonResponse({{"error", "too many requests"}}, k429TooManyRequests));
+            return false;
+        }
+        return true;
+    };
+
     auto sanitizeBoundedText = [](std::string input, std::size_t maxLen)
     {
         input.erase(std::remove_if(input.begin(), input.end(), [](unsigned char c) { return std::iscntrl(c); }),
@@ -182,9 +213,11 @@ int main(int argc, char* argv[])
         return required == auth::Role::Viewer;
     };
 
-    auto requireRole = [&](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>& cb, auth::Role required)
-        -> std::optional<auth::Session>
+    auto requireRole = [&](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>& cb, auth::Role required,
+                           bool enforceCsrf = true) -> std::optional<auth::Session>
     {
+        if (!checkThrottle(req, cb))
+            return std::nullopt;
         auto token   = extractToken(req);
         auto session = authMgr.validate(token);
         if (!session)
@@ -196,6 +229,15 @@ int main(int argc, char* argv[])
         {
             cb(jsonResponse({{"error", "forbidden"}}, k403Forbidden));
             return std::nullopt;
+        }
+        if (enforceCsrf && req->method() != Get && req->method() != Head)
+        {
+            auto csrfHeader = req->getHeader("X-CSRF-Token");
+            if (csrfHeader != session->csrfToken)
+            {
+                cb(jsonResponse({{"error", "csrf check failed"}}, k403Forbidden));
+                return std::nullopt;
+            }
         }
         return session;
     };
@@ -232,8 +274,10 @@ int main(int argc, char* argv[])
     // Auth login
     app().registerHandler(
         "/api/auth/login",
-        [&authMgr, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        [&authMgr, jsonResponse, &checkThrottle](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
         {
+            if (!checkThrottle(req, cb))
+                return;
             auto json = req->getJsonObject();
             if (!json || !json->isMember("username") || !json->isMember("password"))
             {
@@ -253,10 +297,17 @@ int main(int argc, char* argv[])
                 cb(jsonResponse({{"error", "invalid credentials"}}, k401Unauthorized));
                 return;
             }
-            auto resp = jsonResponse({{"token", session->token}, {"role", auth::roleToString(session->role)},
-                                       {"theme", session->theme}},
+            auto resp = jsonResponse({{"token", session->token},
+                                       {"role", auth::roleToString(session->role)},
+                                       {"theme", session->theme},
+                                       {"csrfToken", session->csrfToken}},
                                      k200OK);
-            resp->addCookie("trdp_session", session->token);
+            drogon::Cookie cookie("trdp_session", session->token);
+            cookie.setHttpOnly(true);
+            cookie.setSecure(true);
+            cookie.setSameSite(drogon::Cookie::SameSite::kStrictMode);
+            cookie.setPath("/");
+            resp->addCookie(cookie);
             cb(resp);
         },
         {Post});
@@ -264,11 +315,12 @@ int main(int argc, char* argv[])
     // Auth logout
     app().registerHandler(
         "/api/auth/logout",
-        [&authMgr, extractToken, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        [&authMgr, &requireRole, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
         {
-            auto token = extractToken(req);
-            if (!token.empty())
-                authMgr.logout(token);
+            auto session = requireRole(req, cb, auth::Role::Viewer);
+            if (!session)
+                return;
+            authMgr.logout(session->get().token);
             cb(jsonResponse({{"status", "ok"}}, k200OK));
         },
         {Post});
@@ -282,7 +334,7 @@ int main(int argc, char* argv[])
             if (!session)
                 return;
             cb(jsonResponse({{"username", session->get().username}, {"role", auth::roleToString(session->get().role)},
-                             {"theme", session->get().theme}},
+                             {"theme", session->get().theme}, {"csrfToken", session->get().csrfToken}},
                             k200OK));
         },
         {Get});
