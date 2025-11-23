@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 #if __has_include(<trdp_if_light.h>)
 #include <trdp_if_light.h>
@@ -26,12 +27,15 @@ static TRDP_IP_ADDR_T parse_ip(const char *ip)
 static void fill_pd_config(TRDP_PD_CONFIG_T *pd_config, UINT16 port)
 {
     memset(pd_config, 0, sizeof(*pd_config));
-    pd_config->sendParam.qos = 0;
-    pd_config->sendParam.ttl = 64;
-    pd_config->flags         = TRDP_FLAGS_DEFAULT;
-    pd_config->timeout       = 0;
-    pd_config->toBeDeleted   = 0;
-    pd_config->port          = port;
+    pd_config->sendParam.qos    = 0;
+    pd_config->sendParam.ttl    = 64;
+    pd_config->sendParam.retries = 0;
+    pd_config->sendParam.tsn    = FALSE;
+    pd_config->sendParam.vlan   = 0;
+    pd_config->flags            = TRDP_FLAGS_DEFAULT;
+    pd_config->timeout          = 0;
+    pd_config->toBehavior       = TRDP_TO_KEEP_LAST_VALUE;
+    pd_config->port             = port;
 }
 
 int main(int argc, char *argv[])
@@ -54,7 +58,7 @@ int main(int argc, char *argv[])
     }
 
     static uint8_t        mem_pool[1024 * 1024];
-    TRDP_MEM_CONFIG_T     mem_config = {.pBytes = mem_pool, .size = sizeof(mem_pool)};
+    TRDP_MEM_CONFIG_T     mem_config = {.p = mem_pool, .size = sizeof(mem_pool), .prealloc = {0}};
     TRDP_PROCESS_CONFIG_T process_config;
     TRDP_PD_CONFIG_T      pd_config;
     TRDP_SEND_PARAM_T     send_param;
