@@ -1,0 +1,4 @@
+usr/bin/trdp-simulator
+etc/trdp-simulator/trdp.xml
+etc/default/trdp-simulator
+lib/systemd/system/trdp-simulator.service

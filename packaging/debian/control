@@ -1,0 +1,14 @@
+Source: trdp-simulator
+Section: net
+Priority: optional
+Maintainer: TRDP Simulator Team <maintainers@trainrealtimedatasimulator.local>
+Standards-Version: 4.6.2
+Build-Depends: debhelper-compat (= 13), cmake, ninja-build, libssl-dev, libdrogon-dev, libtinyxml2-dev, nlohmann-json3-dev
+Homepage: https://example.com/trdp-simulator
+
+Package: trdp-simulator
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, libssl3, libtinyxml2-9, nlohmann-json3-dev, libdrogon-dev
+Description: TRDP simulator with HTTP API, PD/MD controls, and diagnostics
+ This package installs the TRDP simulator daemon, its systemd unit,
+ sample configuration, and default environment overrides.

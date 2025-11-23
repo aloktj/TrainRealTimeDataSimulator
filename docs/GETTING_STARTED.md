@@ -33,6 +33,17 @@ cmake --build build --target trdp-simulator
 
 Add `-DTRDP_ENABLE_TESTS=ON` to configure the GoogleTest targets. Set `-DTRDP_USE_STUBS=OFF` plus TRDP include/lib paths to link against a real SDK.
 
+### Cross-compiling for Raspberry Pi
+
+```bash
+cmake -S . -B build-arm64 -GNinja \\
+  -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/arm64-gnu.cmake \\
+  -DTRDP_USE_STUBS=ON -DTRDP_ENABLE_TESTS=OFF -DTRDP_PI_OPTIMIZED=ON
+cmake --build build-arm64 --target trdp-simulator
+```
+
+The GitHub CI workflow (`cross-build-arm64`) runs the same steps to ensure the codebase stays portable across architectures.
+
 ## Running the simulator locally
 
 ```bash
@@ -50,7 +61,7 @@ The sample `config/trdp.xml` demonstrates the supported schema:
 - `<Debug>`: enables file logging with a maximum size and severity threshold (used to configure `DiagnosticManager`).
 - `<Pcap>`: optionally enables packet captures with `enabled`, `fileName`, `maxSizeBytes`, `maxFiles`, and `captureTx`/`captureRx` toggles.
 - `<DataSets>`: declares dataset IDs/names and each element's type/array size.
-- `<Interfaces>/<Telegrams>`: PD telegrams specify cycle/timeout/validity rules and destinations; MD telegrams omit `<PdParameters>` to indicate MD behavior.
+- `<Interfaces>/<Telegrams>`: PD telegrams specify cycle/timeout/validity rules and destinations; MD telegrams omit `<PdParameters>` to indicate MD behavior. When `validityBehavior` is omitted, interface-level PD defaults zero-out undefined values while telegram-level parameters default to keeping the last value.
 - `<MappedDevices>`: maps COM IDs to host/leader IPs for redundancy or external peers.
 
 See the inline comments and values in the XML for concrete examples of PD publish/subscribe telegrams plus an MD request telegram.

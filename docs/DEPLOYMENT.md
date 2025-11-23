@@ -18,6 +18,9 @@ This guide describes how to build deployable artifacts (.deb, Docker image, syst
    ```bash
    sudo apt install ./build/trdp-simulator-*.deb
    ```
+4. For teams preferring `dpkg-buildpackage`, the `packaging/debian` folder ships
+   `control`, `changelog`, and `.install` manifests that mirror the CPack output.
+   Point `debuild` at the repository root after running `cmake --build`.
 
 ### Docker image
 - Build for the host architecture:
@@ -27,6 +30,11 @@ This guide describes how to build deployable artifacts (.deb, Docker image, syst
 - Build for Raspberry Pi from an x86 host (requires Docker Buildx):
   ```bash
   docker buildx build --platform linux/arm64/v8 -t trdp-simulator:pi .
+  ```
+- Use multi-arch build arguments (the Dockerfile sets `TRDP_PI_OPTIMIZED=ON` when
+  targeting arm/arm64):
+  ```bash
+  docker buildx build --platform linux/arm/v7,linux/arm64/v8,linux/amd64 -t trdp-simulator:multi .
   ```
 - Run the image (bind a config file and expose the API):
   ```bash
@@ -61,6 +69,13 @@ This guide describes how to build deployable artifacts (.deb, Docker image, syst
   ```bash
   cmake -S . -B build -DTRDP_USE_STUBS=ON -DTRDP_ENABLE_TESTS=OFF -DTRDP_PI_OPTIMIZED=ON
   cmake --build build --target package
+  ```
+- Cross-compile from x86 using the provided toolchain file:
+  ```bash
+  cmake -S . -B build-arm64 -GNinja \
+    -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/arm64-gnu.cmake \
+    -DTRDP_USE_STUBS=ON -DTRDP_ENABLE_TESTS=OFF -DTRDP_PI_OPTIMIZED=ON
+  cmake --build build-arm64 --target trdp-simulator
   ```
 - Install the generated `.deb` on the Pi (`sudo apt install ./build/...deb`).
 - Use the same `/etc/trdp-simulator` XML and `/etc/default/trdp-simulator` overrides as on VMs.

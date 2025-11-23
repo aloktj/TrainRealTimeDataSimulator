@@ -280,7 +280,7 @@ namespace config
             cfg.ttl              = parseUnsigned<uint8_t>(path, elem, "ttl", true);
             cfg.timeoutUs        = parseUnsigned<uint32_t>(path, elem, "timeoutUs", true);
             cfg.validityBehavior =
-                parseValidityBehavior(path, elem, parseString(path, elem, "validityBehavior", false, "KEEP"));
+                parseValidityBehavior(path, elem, parseString(path, elem, "validityBehavior", false, "ZERO"));
             cfg.callbackEnabled  = parseBool(path, elem, "callbackEnabled", false);
             return cfg;
         }

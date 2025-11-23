@@ -30,6 +30,15 @@ namespace trdp_sim::trdp
         uint64_t eventLoopErrors{0};
     };
 
+    struct PdSendLogEntry
+    {
+        uint32_t comId{0};
+        uint32_t channel{0};
+        bool     dropped{false};
+    };
+
+    constexpr int kPdSoftDropCode = -32001;
+
     class TrdpAdapter
     {
       public:
@@ -72,6 +81,7 @@ namespace trdp_sim::trdp
         std::vector<uint8_t>  getLastMdReplyPayload() const;
         std::vector<uint32_t> getRequestedSessions() const;
         std::vector<uint32_t> getRepliedSessions() const;
+        std::vector<PdSendLogEntry> getPdSendLog() const;
 
         // Test helpers to simulate network failures
         void setPdSendResult(int rc);
@@ -85,9 +95,10 @@ namespace trdp_sim::trdp
         std::optional<uint32_t> m_lastErrorCode;
         std::vector<uint8_t>    m_lastPdPayload;
         std::vector<uint8_t>    m_lastMdRequestPayload;
-        std::vector<uint8_t>    m_lastMdReplyPayload;
-        std::vector<uint32_t>   m_requestedSessions;
-        std::vector<uint32_t>   m_repliedSessions;
+        std::vector<uint8_t>          m_lastMdReplyPayload;
+        std::vector<uint32_t>         m_requestedSessions;
+        std::vector<uint32_t>         m_repliedSessions;
+        mutable std::vector<PdSendLogEntry> m_pdSendLog;
         std::optional<int>      m_pdSendResult;
         std::optional<int>      m_mdRequestResult;
         std::optional<int>      m_mdReplyResult;
@@ -96,6 +107,7 @@ namespace trdp_sim::trdp
         std::unordered_map<std::string, std::unordered_set<std::string>> m_multicastMembership;
 
         void recordError(uint32_t code, uint64_t TrdpErrorCounters::* member);
+        void recordSendLog(uint32_t comId, uint32_t channel, bool dropped) const;
     };
 
 } // namespace trdp_sim::trdp

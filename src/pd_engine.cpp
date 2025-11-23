@@ -277,121 +277,157 @@ namespace engine::pd
         }
     }
 
-    void PdEngine::runPublisherLoop()
+    void PdEngine::processPublishersOnce(std::chrono::steady_clock::time_point now)
+{
+    using namespace std::chrono;
+    using trdp_sim::util::marshalDataSet;
+
+    trdp_sim::SimulationControls::StressMode stressSnapshot{};
     {
-        using namespace std::chrono;
-        using trdp_sim::util::marshalDataSet;
-        while (m_running.load())
+        std::lock_guard<std::mutex> lk(m_ctx.simulation.mtx);
+        stressSnapshot = m_ctx.simulation.stress;
+    }
+    const bool  stressActive = stressSnapshot.enabled;
+    std::size_t pdBudget     = stressActive
+                                  ? std::min<std::size_t>(stressSnapshot.pdBurstTelegrams,
+                                                          trdp_sim::SimulationControls::StressMode::kMaxBurstTelegrams)
+                                  : 0;
+    const auto minCycle = microseconds(trdp_sim::SimulationControls::StressMode::kMinCycleUs);
+
+    struct Candidate
+    {
+        PdTelegramRuntime*                       pd{nullptr};
+        microseconds                             cycle{};
+        std::chrono::steady_clock::time_point    nextDue{};
+    };
+
+    std::vector<Candidate> due;
+    for (auto& pdPtr : m_ctx.pdTelegrams)
+    {
+        auto&                       pd = *pdPtr;
+        std::lock_guard<std::mutex> lk(pd.mtx);
+        if (!pd.enabled || !pd.cfg || !pd.cfg->pdParam || pd.direction != Direction::PUBLISH)
+            continue;
+
+        auto cycle = microseconds(pd.cfg->pdParam->cycleUs);
+        if (stressActive && stressSnapshot.pdCycleOverrideUs > 0)
         {
-            trdp_sim::SimulationControls::StressMode stressSnapshot{};
+            auto overrideCycle = microseconds(
+                std::max(stressSnapshot.pdCycleOverrideUs,
+                         static_cast<uint32_t>(trdp_sim::SimulationControls::StressMode::kMinCycleUs)));
+            if (overrideCycle < cycle || pd.cfg->pdParam->cycleUs == 0)
+                cycle = overrideCycle;
+        }
+        if (cycle < minCycle)
+            cycle = minCycle;
+        if (pd.stats.lastTxTime.time_since_epoch().count() == 0)
+            pd.stats.lastTxTime = now - cycle;
+
+        const auto nextDue = pd.stats.lastTxTime + cycle;
+        bool       isDue   = pd.sendNow || now >= nextDue;
+        if (!isDue && stressActive && pdBudget > 0)
+        {
+            isDue = true;
+            --pdBudget;
+            pd.stats.stressBursts++;
+        }
+
+        if (isDue)
+            due.push_back(Candidate{&pd, cycle, nextDue});
+    }
+
+    std::sort(due.begin(), due.end(), [](const Candidate& a, const Candidate& b) {
+        if (a.nextDue == b.nextDue)
+            return (a.pd && b.pd && a.pd->cfg && b.pd->cfg) ? a.pd->cfg->comId < b.pd->cfg->comId : a.nextDue < b.nextDue;
+        return a.nextDue < b.nextDue;
+    });
+
+    for (auto& item : due)
+    {
+        auto&                       pd = *item.pd;
+        std::lock_guard<std::mutex> lk(pd.mtx);
+        auto*                       ds = pd.dataset;
+        if (!ds)
+            continue;
+
+        const auto rule = pd.cfg ? findRule(m_ctx, pd.cfg->comId, pd.cfg->dataSetId) : std::nullopt;
+        if (rule)
+        {
+            if (shouldDrop(*rule))
+                continue;
+            applyDelay(*rule);
+            if (rule->corruptComId && m_ctx.diagManager)
             {
-                std::lock_guard<std::mutex> lk(m_ctx.simulation.mtx);
-                stressSnapshot = m_ctx.simulation.stress;
+                m_ctx.diagManager->log(diag::Severity::WARN, "PD", "Injecting COM ID corruption for PD telegram");
             }
-            const bool     stressActive = stressSnapshot.enabled;
-            std::size_t    pdBudget     = stressActive
-                                          ? std::min<std::size_t>(stressSnapshot.pdBurstTelegrams,
-                                                                  trdp_sim::SimulationControls::StressMode::kMaxBurstTelegrams)
-                                          : 0;
-            const auto minCycle = microseconds(trdp_sim::SimulationControls::StressMode::kMinCycleUs);
-            auto now = steady_clock::now();
-            for (auto& pdPtr : m_ctx.pdTelegrams)
-            {
-                auto&                       pd = *pdPtr;
-                std::lock_guard<std::mutex> lk(pd.mtx);
-                if (!pd.enabled || !pd.cfg || !pd.cfg->pdParam || pd.direction != Direction::PUBLISH)
-                    continue;
+        }
 
-                auto cycle = microseconds(pd.cfg->pdParam->cycleUs);
-                if (stressActive && stressSnapshot.pdCycleOverrideUs > 0)
-                {
-                    auto overrideCycle = microseconds(
-                        std::max(stressSnapshot.pdCycleOverrideUs,
-                                 static_cast<uint32_t>(trdp_sim::SimulationControls::StressMode::kMinCycleUs)));
-                    if (overrideCycle < cycle || pd.cfg->pdParam->cycleUs == 0)
-                        cycle = overrideCycle;
-                }
-                if (cycle < minCycle)
-                    cycle = minCycle;
-                if (pd.stats.lastTxTime.time_since_epoch().count() == 0)
-                    pd.stats.lastTxTime = now - cycle;
-                bool due = pd.sendNow || now - pd.stats.lastTxTime >= cycle;
-                if (!due && stressActive && pdBudget > 0)
-                {
-                    due = true;
-                    --pdBudget;
-                    pd.stats.stressBursts++;
-                }
-                if (due)
-                {
-                    auto* ds = pd.dataset;
-                    if (!ds)
-                        continue;
+        std::lock_guard<std::mutex> dsLock(ds->mtx);
+        const bool                  shouldMarshall = pd.cfg->pdParam ? pd.cfg->pdParam->marshall : pd.pdComCfg->marshall;
+        auto payload = shouldMarshall ? marshalDataSet(*ds, m_ctx)
+                                      : std::vector<uint8_t>(ds->values.empty() ? 0 : ds->values.front().raw.size());
+        if (!shouldMarshall && !ds->values.empty())
+        {
+            payload = ds->values.front().raw;
+        }
 
-                    const auto rule = pd.cfg ? findRule(m_ctx, pd.cfg->comId, pd.cfg->dataSetId) : std::nullopt;
-                    if (rule)
-                    {
-                        if (shouldDrop(*rule))
-                            continue;
-                        applyDelay(*rule);
-                        if (rule->corruptComId && m_ctx.diagManager)
-                        {
-                            m_ctx.diagManager->log(diag::Severity::WARN, "PD", "Injecting COM ID corruption for PD telegram");
-                        }
-                    }
+        if (rule && rule->corruptDataSetId && !payload.empty())
+            payload[0] = static_cast<uint8_t>(payload[0] ^ 0xFF);
+        if (rule && rule->corruptComId)
+            payload.insert(payload.begin(), 0xCD);
 
-                    std::lock_guard<std::mutex> dsLock(ds->mtx);
-                    const bool                  shouldMarshall = pd.cfg->pdParam ? pd.cfg->pdParam->marshall :
-                                                                   pd.pdComCfg->marshall;
-                    auto payload = shouldMarshall ? marshalDataSet(*ds, m_ctx)
-                                                  : std::vector<uint8_t>(ds->values.empty() ? 0 : ds->values.front().raw.size());
-                    if (!shouldMarshall && !ds->values.empty())
-                    {
-                        payload = ds->values.front().raw;
-                    }
+        if (rule && rule->seqDelta != 0)
+        {
+            auto next = static_cast<int64_t>(pd.stats.lastSeqNumber) + rule->seqDelta;
+            pd.stats.lastSeqNumber = next < 0 ? 0 : static_cast<uint64_t>(next);
+        }
 
-                    if (rule && rule->corruptDataSetId && !payload.empty())
-                        payload[0] = static_cast<uint8_t>(payload[0] ^ 0xFF);
-                    if (rule && rule->corruptComId)
-                        payload.insert(payload.begin(), 0xCD);
-
-                    if (rule && rule->seqDelta != 0)
-                    {
-                        auto next = static_cast<int64_t>(pd.stats.lastSeqNumber) + rule->seqDelta;
-                        pd.stats.lastSeqNumber = next < 0 ? 0 : static_cast<uint64_t>(next);
-                    }
-
-                    int rc = m_adapter.sendPdData(pd, payload);
-                    if (rc == 0)
-                    {
-                        pd.stats.txCount++;
-                        pd.stats.lastSeqNumber++;
-                        pd.stats.lastTxTime = now;
-                        pd.stats.lastTxWall = std::chrono::system_clock::now();
-                        pd.sendNow          = false;
-                    }
-                    else
-                    {
-                        std::cerr << "Failed to send PD COM ID " << pd.cfg->comId << " (rc=" << rc << ")" << std::endl;
-                    }
-                }
-
-                if (pd.direction == Direction::SUBSCRIBE && pd.cfg && pd.cfg->pdParam)
-                {
-                    auto timeoutUs = pd.cfg->pdParam->timeoutUs;
-                    if (timeoutUs > 0 && pd.stats.lastRxTime.time_since_epoch().count() != 0)
-                    {
-                        auto delta = duration_cast<microseconds>(now - pd.stats.lastRxTime);
-                        if (!pd.stats.timedOut && static_cast<uint64_t>(delta.count()) > timeoutUs)
-                        {
-                            pd.stats.timeoutCount++;
-                            pd.stats.timedOut = true;
-                        }
-                    }
-                }
-            }
-            std::this_thread::sleep_for(1ms);
+        int rc = m_adapter.sendPdData(pd, payload);
+        if (rc == 0 || rc == trdp_sim::trdp::kPdSoftDropCode)
+        {
+            if (rc == 0)
+                pd.stats.txCount++;
+            pd.stats.lastSeqNumber++;
+            pd.stats.lastTxTime = now;
+            pd.stats.lastTxWall = std::chrono::system_clock::now();
+            pd.sendNow          = false;
+        }
+        else
+        {
+            std::cerr << "Failed to send PD COM ID " << (pd.cfg ? pd.cfg->comId : 0) << " (rc=" << rc << ")" << std::endl;
         }
     }
+}
+
+void PdEngine::runPublisherLoop()
+{
+    using namespace std::chrono_literals;
+
+    while (m_running.load())
+    {
+        const auto now = std::chrono::steady_clock::now();
+        processPublishersOnce(now);
+
+        for (auto& pdPtr : m_ctx.pdTelegrams)
+        {
+            auto&                       pd = *pdPtr;
+            std::lock_guard<std::mutex> lk(pd.mtx);
+            if (pd.direction == Direction::SUBSCRIBE && pd.cfg && pd.cfg->pdParam)
+            {
+                auto timeoutUs = pd.cfg->pdParam->timeoutUs;
+                if (timeoutUs > 0 && pd.stats.lastRxTime.time_since_epoch().count() != 0)
+                {
+                    auto delta = std::chrono::duration_cast<std::chrono::microseconds>(now - pd.stats.lastRxTime);
+                    if (!pd.stats.timedOut && static_cast<uint64_t>(delta.count()) > timeoutUs)
+                    {
+                        pd.stats.timeoutCount++;
+                        pd.stats.timedOut = true;
+                    }
+                }
+            }
+        }
+        std::this_thread::sleep_for(1ms);
+    }
+}
 
 } // namespace engine::pd
