@@ -5,6 +5,14 @@
 
 A lightweight TRDP (Train Real-time Data Protocol) simulator that exercises PD and MD flows, parses TRDP XML configuration, and exposes an HTTP API for controlling telegrams, datasets, and diagnostics.
 
+> Note: Clone this repository with submodules so the optional [TCNopen](https://github.com/aloktj/TCNopen.git) dependency is available for builds against an open-source TRDP stack:
+>
+> ```bash
+> git clone --recursive https://github.com/TrainRealTimeDataSimulator/TrainRealTimeDataSimulator.git
+> # or, if already cloned
+> git submodule update --init --recursive
+> ```
+
 ## Prerequisites
 
 - C++17 toolchain and CMake 3.16+
@@ -39,6 +47,20 @@ cmake -S . -B build \
   -DTRDP_INCLUDE_DIR=/path/to/trdp/includes
 cmake --build build --target trdp-simulator
 ```
+
+### Using the TCNopen submodule for TRDP
+
+To build against the open-source TRDP implementation in the `external/TCNopen` submodule, enable the dedicated CMake switch and disable the built-in stubs:
+
+```bash
+git submodule update --init --recursive
+cmake -S . -B build \
+  -DTRDP_USE_STUBS=OFF \
+  -DTRDP_USE_TCNOPEN=ON
+cmake --build build --target trdp-simulator
+```
+
+Configuration will fail early if the submodule is missing while `TRDP_USE_TCNOPEN` is enabled.
 
 ## Running locally
 
