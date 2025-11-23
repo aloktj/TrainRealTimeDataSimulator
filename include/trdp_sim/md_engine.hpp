@@ -55,10 +55,11 @@ namespace engine::md
 
     struct MdIndicationContext
     {
-        uint32_t   sessionId{0};
-        uint32_t   comId{0};
-        MdProtocol proto{MdProtocol::UDP};
-        uint32_t   resultCode{0};
+        TRDP_UUID_T trdpSessionId{};
+        uint32_t    sessionId{0};
+        uint32_t    comId{0};
+        MdProtocol  proto{MdProtocol::UDP};
+        uint32_t    resultCode{0};
     };
 
     struct MdSessionRuntime
@@ -74,7 +75,7 @@ namespace engine::md
         data::DataSetInstance*                responseData{nullptr};
         MdSessionState                        state{MdSessionState::IDLE};
         uint32_t                              retryCount{0};
-        TRDP_LR_T                             mdHandle{0};
+        TRDP_UUID_T                           trdpSessionId{};
         std::chrono::steady_clock::time_point lastStateChange{};
         std::chrono::steady_clock::time_point deadline{};
         std::chrono::steady_clock::time_point lastRequestWall{};
@@ -118,6 +119,7 @@ namespace engine::md
         void buildSessionsFromConfig();
         void runLoop();
         void handleTimeouts();
+        std::optional<MdSessionRuntime*> getSessionByTrdpSession(const TRDP_UUID_T& trdpSessionId);
         void dispatchRequestLocked(MdSessionRuntime& session);
         void dispatchReplyLocked(MdSessionRuntime& session);
 

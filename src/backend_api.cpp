@@ -52,12 +52,12 @@ namespace api
                 return "REAL32";
             case data::ElementType::REAL64:
                 return "REAL64";
-            case data::ElementType::TIMEDATE32:
-                return "TIMEDATE32";
-            case data::ElementType::TIMEDATE48:
-                return "TIMEDATE48";
-            case data::ElementType::TIMEDATE64:
-                return "TIMEDATE64";
+        case data::ElementType::TIME_DATE32:
+            return "TIMEDATE32";
+        case data::ElementType::TIME_DATE48:
+            return "TIMEDATE48";
+        case data::ElementType::TIME_DATE64:
+            return "TIMEDATE64";
             case data::ElementType::NESTED_DATASET:
                 return "NESTED_DATASET";
             }

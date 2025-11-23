@@ -436,10 +436,12 @@ namespace trdp_sim::trdp
         if (!session.telegram->destinations.empty())
             destIp = toIp(session.telegram->destinations.front().uri);
 
-        TRDP_ERR_T err = tlm_request(
-            m_ctx.trdpSession, &session.mdHandle, nullptr, &mdCallback, this, destIp, session.telegram->comId, 0, 0,
-            const_cast<UINT8*>(payload.empty() ? nullptr : payload.data()), static_cast<UINT32>(payload.size()), 0,
-            session.proto == engine::md::MdProtocol::TCP ? TRDP_MD_TCP : TRDP_MD_UDP, 0, 0);
+        TRDP_URI_USER_T srcUri{};
+        TRDP_URI_USER_T destUri{};
+        TRDP_ERR_T      err = tlm_request(
+            m_ctx.trdpSession, this, &mdCallback, &session.trdpSessionId, session.telegram->comId, 0, 0, 0, destIp, 0, 0,
+            0, nullptr, const_cast<UINT8*>(payload.empty() ? nullptr : payload.data()),
+            static_cast<UINT32>(payload.size()), srcUri, destUri);
 
         if (err != TRDP_NO_ERR)
         {
@@ -475,9 +477,8 @@ namespace trdp_sim::trdp
             destIp = toIp(session.telegram->destinations.front().uri);
 
         TRDP_ERR_T err = tlm_reply(
-            m_ctx.trdpSession, session.mdHandle, &mdCallback, this, destIp, session.telegram->comId,
-            const_cast<UINT8*>(payload.empty() ? nullptr : payload.data()), static_cast<UINT32>(payload.size()), 0,
-            session.proto == engine::md::MdProtocol::TCP ? TRDP_MD_TCP : TRDP_MD_UDP, 0, 0);
+            m_ctx.trdpSession, &session.trdpSessionId, session.telegram->comId, 0, nullptr,
+            const_cast<UINT8*>(payload.empty() ? nullptr : payload.data()), static_cast<UINT32>(payload.size()), nullptr);
 
         if (err != TRDP_NO_ERR)
         {
@@ -513,11 +514,19 @@ namespace trdp_sim::trdp
             return;
         }
 
-        const auto sessionId = info ? info->sessionId : 0;
-        auto       it        = m_ctx.mdSessions.find(sessionId);
-        if (it == m_ctx.mdSessions.end())
-            return;
-        auto& sess = it->second;
+        TRDP_UUID_T trdpSessionId{};
+        if (info)
+            trdpSessionId = info->sessionId;
+
+        engine::md::MdSessionRuntime* sess = nullptr;
+        for (auto& [_, candidate] : m_ctx.mdSessions)
+        {
+            if (candidate && std::memcmp(&candidate->trdpSessionId, &trdpSessionId, sizeof(TRDP_UUID_T)) == 0)
+            {
+                sess = candidate.get();
+                break;
+            }
+        }
         if (!sess)
             return;
         std::lock_guard<std::mutex> lk(sess->mtx);

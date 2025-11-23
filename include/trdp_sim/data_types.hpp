@@ -24,9 +24,9 @@ namespace data
         UINT64,
         REAL32,
         REAL64,
-        TIMEDATE32,
-        TIMEDATE48,
-        TIMEDATE64,
+        TIME_DATE32,
+        TIME_DATE48,
+        TIME_DATE64,
         NESTED_DATASET
     };
 

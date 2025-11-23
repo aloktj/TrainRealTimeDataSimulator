@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstring>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -16,6 +17,11 @@ namespace engine::md
     namespace
     {
         using Rule = trdp_sim::SimulationControls::InjectionRule;
+
+        bool uuidEqual(const TRDP_UUID_T& a, const TRDP_UUID_T& b)
+        {
+            return std::memcmp(&a, &b, sizeof(TRDP_UUID_T)) == 0;
+        }
 
         constexpr auto kMinTcpDispatchInterval = std::chrono::milliseconds(50);
 
@@ -143,6 +149,7 @@ namespace engine::md
         if (!opt)
             return;
         MdSessionRuntime*           sess = *opt;
+        ctx.sessionId                      = sess->sessionId;
         std::lock_guard<std::mutex> lk(sess->mtx);
         if (sess->role != MdRole::REQUESTER)
             return;
@@ -167,9 +174,9 @@ namespace engine::md
         MdIndicationContext ctx;
         if (info)
         {
-            ctx.sessionId = info->sessionId;
-            ctx.comId     = info->comId;
-            ctx.proto     = toMdProto(info);
+            ctx.trdpSessionId = info->sessionId;
+            ctx.comId         = info->comId;
+            ctx.proto         = toMdProto(info);
             ctx.resultCode = info->resultCode;
         }
 
@@ -181,7 +188,7 @@ namespace engine::md
             applyDelay(*rule);
         }
 
-        auto opt = getSession(ctx.sessionId);
+        auto opt = getSessionByTrdpSession(ctx.trdpSessionId);
         if (!opt)
         {
             if (ctx.comId == 0)
@@ -209,18 +216,22 @@ namespace engine::md
             }
 
             MdSessionPtr sess(new MdSessionRuntime());
-            sess->sessionId    = ctx.sessionId;
-            sess->comId        = ctx.comId;
-            sess->telegram     = it->second.telegram;
-            sess->iface        = it->second.iface;
-            sess->mdCom        = it->second.iface ? &it->second.iface->mdCom : nullptr;
-            sess->role         = MdRole::RESPONDER;
-            sess->requestData  = dsIt->second.get();
-            sess->responseData = dsIt->second.get();
-            sess->proto        = ctx.proto;
-            sess->state        = MdSessionState::IDLE;
-            m_ctx.mdSessions[sess->sessionId] = std::move(sess);
-            opt                                 = m_ctx.mdSessions.find(ctx.sessionId)->second.get();
+            sess->sessionId     = m_nextSessionId++;
+            sess->comId         = ctx.comId;
+            sess->telegram      = it->second.telegram;
+            sess->iface         = it->second.iface;
+            sess->mdCom         = it->second.iface ? &it->second.iface->mdCom : nullptr;
+            sess->role          = MdRole::RESPONDER;
+            sess->requestData   = dsIt->second.get();
+            sess->responseData  = dsIt->second.get();
+            sess->proto         = ctx.proto;
+            sess->state         = MdSessionState::IDLE;
+            sess->trdpSessionId = ctx.trdpSessionId;
+
+            const auto internalId = sess->sessionId;
+            m_ctx.mdSessions[internalId] = std::move(sess);
+            ctx.sessionId                 = internalId;
+            opt                           = m_ctx.mdSessions.find(internalId)->second.get();
         }
         if (!opt)
             return;
@@ -280,6 +291,19 @@ namespace engine::md
         if (it == m_ctx.mdSessions.end())
             return std::nullopt;
         return it->second.get();
+    }
+
+    std::optional<MdSessionRuntime*> MdEngine::getSessionByTrdpSession(const TRDP_UUID_T& trdpSessionId)
+    {
+        std::lock_guard<std::mutex> lock(m_sessionsMtx);
+        for (auto& [_, sessPtr] : m_ctx.mdSessions)
+        {
+            if (!sessPtr)
+                continue;
+            if (uuidEqual(sessPtr->trdpSessionId, trdpSessionId))
+                return sessPtr.get();
+        }
+        return std::nullopt;
     }
 
     void MdEngine::forEachSession(const std::function<void(const MdSessionRuntime&)>& fn)
