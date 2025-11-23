@@ -21,6 +21,22 @@ namespace engine::pd
     {
         using Rule = trdp_sim::SimulationControls::InjectionRule;
 
+        TRDP_IP_ADDR_T parseIp(const std::string& ip)
+        {
+            if (ip.empty())
+                return 0;
+
+            struct in_addr addr
+            {
+            };
+
+            if (inet_aton(ip.c_str(), &addr) == 0)
+                return 0;
+
+            /* TRDP expects host-order IP integers. */
+            return static_cast<TRDP_IP_ADDR_T>(ntohl(addr.s_addr));
+        }
+
         std::optional<Rule> findRule(const trdp_sim::EngineContext& ctx, uint32_t comId, uint32_t dataSetId)
         {
             std::lock_guard<std::mutex> lk(ctx.simulation.mtx);
@@ -97,7 +113,7 @@ namespace engine::pd
                     for (const auto& dest : tel.destinations)
                     {
                         PdTelegramRuntime::PublicationChannel ch{};
-                        ch.destIp = dest.uri.empty() ? 0 : inet_addr(dest.uri.c_str());
+                        ch.destIp = parseIp(dest.uri);
                         rt->pubChannels.push_back(ch);
                     }
 
