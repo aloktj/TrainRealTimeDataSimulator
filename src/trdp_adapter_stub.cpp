@@ -137,7 +137,7 @@ namespace trdp_sim::trdp
         return true;
     }
 
-    int TrdpAdapter::publishPd(const engine::pd::PdTelegramRuntime& pd)
+    int TrdpAdapter::publishPd(engine::pd::PdTelegramRuntime& pd)
     {
         (void) pd;
         return 0;

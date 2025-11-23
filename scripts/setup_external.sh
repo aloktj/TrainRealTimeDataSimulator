@@ -11,6 +11,40 @@ declare -A DEPS=(
   ["tinyxml2"]="tinyxml2.zip"
 )
 
+ensure_jsoncpp() {
+  if pkg-config --exists jsoncpp; then
+    return
+  fi
+
+  echo "[setup_external] jsoncpp development package not detected; installing via apt..."
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -y >/dev/null
+  apt-get install -y --no-install-recommends libjsoncpp-dev >/dev/null
+}
+
+ensure_nlohmann_json() {
+  if [[ -f "/usr/include/nlohmann/json.hpp" ]]; then
+    return
+  fi
+
+  echo "[setup_external] nlohmann_json headers not detected; installing via apt..."
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -y >/dev/null
+  apt-get install -y --no-install-recommends nlohmann-json3-dev >/dev/null
+}
+
+ensure_trantor() {
+  local drogon_dir="$1"
+  local trantor_dir="${drogon_dir}/trantor"
+  if [[ -f "${trantor_dir}/CMakeLists.txt" ]]; then
+    return
+  fi
+
+  echo "[setup_external] Drogon archive missing trantor; fetching upstream release..."
+  rm -rf "${drogon_dir}"
+  git clone --branch v1.9.11 --recurse-submodules https://github.com/drogonframework/drogon.git "${drogon_dir}" >/dev/null
+}
+
 echo "[setup_external] Project root: ${ROOT_DIR}"
 echo "[setup_external] External dir: ${EXTERNAL_DIR}"
 mkdir -p "${EXTERNAL_DIR}"
@@ -41,6 +75,16 @@ for NAME in "${!DEPS[@]}"; do
   unzip -q "${ZIP_PATH}" -d "${TARGET_DIR}"
   echo "Done: ${NAME}"
 done
+
+# Drogon archive packaged with the repo doesn't include its trantor submodule.
+# Fetch it explicitly when missing to keep the build reproducible.
+ensure_trantor "${EXTERNAL_DIR}/drogon"
+
+# Drogon requires jsoncpp; install it if it's not already present.
+ensure_jsoncpp
+
+# The simulator uses nlohmann_json headers when the system package is available.
+ensure_nlohmann_json
 
 echo
 echo "[setup_external] All external dependencies are ready."

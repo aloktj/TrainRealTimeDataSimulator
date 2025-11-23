@@ -112,6 +112,7 @@ set(TRDP_SIM_CORE_SOURCES
     ${TRDP_SIM_SRC_DIR}/md_engine.cpp
     ${TRDP_SIM_SRC_DIR}/diagnostic_manager.cpp
     ${TRDP_SIM_SRC_DIR}/backend_engine.cpp
+    ${TRDP_SIM_SRC_DIR}/backend_api.cpp
     ${TRDP_SIM_SRC_DIR}/auth_manager.cpp
     ${TRDP_ADAPTER_SOURCE}
 )
@@ -193,6 +194,10 @@ if(TRDP_ENABLE_APP)
         else()
             message(FATAL_ERROR "Drogon not found. Install libdrogon-dev or initialize the external/drogon submodule.")
         endif()
+    endif()
+
+    if(NOT TARGET Drogon::Drogon AND TARGET drogon)
+        add_library(Drogon::Drogon ALIAS drogon)
     endif()
 
     if(NOT TARGET Drogon::Drogon)

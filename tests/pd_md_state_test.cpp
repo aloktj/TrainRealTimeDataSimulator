@@ -13,23 +13,23 @@
 namespace
 {
 
-    trdp_sim::EngineContext buildContextFromConfig()
+    std::unique_ptr<trdp_sim::EngineContext> buildContextFromConfig()
     {
-        config::ConfigManager   mgr;
-        trdp_sim::EngineContext ctx;
-        const auto              configPath =
+        config::ConfigManager               mgr;
+        auto                                ctx = std::make_unique<trdp_sim::EngineContext>();
+        const auto                          configPath =
             std::filesystem::path(__FILE__).parent_path().parent_path() / "config" / "sample_ci_device.xml";
-        ctx.deviceConfig = mgr.loadDeviceConfigFromXml(configPath.string());
-        mgr.validateDeviceConfig(ctx.deviceConfig);
+        ctx->deviceConfig = mgr.loadDeviceConfigFromXml(configPath.string());
+        mgr.validateDeviceConfig(ctx->deviceConfig);
 
-        auto defs = mgr.buildDataSetDefs(ctx.deviceConfig);
+        auto defs = mgr.buildDataSetDefs(ctx->deviceConfig);
         for (auto& def : defs)
         {
-            ctx.dataSetDefs[def.id] = def;
-            auto inst               = std::make_unique<data::DataSetInstance>();
-            inst->def               = &ctx.dataSetDefs[def.id];
+            ctx->dataSetDefs[def.id] = def;
+            auto inst                = std::make_unique<data::DataSetInstance>();
+            inst->def                = &ctx->dataSetDefs[def.id];
             inst->values.resize(def.elements.size());
-            ctx.dataSetInstances[def.id] = std::move(inst);
+            ctx->dataSetInstances[def.id] = std::move(inst);
         }
         return ctx;
     }
@@ -39,10 +39,11 @@ namespace
 class PdMdStateTest : public ::testing::Test
 {
   protected:
-    PdMdStateTest() : ctx(buildContextFromConfig()), adapter(ctx), pdEngine(ctx, adapter), mdEngine(ctx, adapter)
+    PdMdStateTest()
+        : ctx(buildContextFromConfig()), adapter(*ctx), pdEngine(*ctx, adapter), mdEngine(*ctx, adapter)
     {
-        ctx.pdEngine = &pdEngine;
-        ctx.mdEngine = &mdEngine;
+        ctx->pdEngine = &pdEngine;
+        ctx->mdEngine = &mdEngine;
     }
 
     void SetUp() override
@@ -57,10 +58,10 @@ class PdMdStateTest : public ::testing::Test
         mdEngine.stop();
     }
 
-    trdp_sim::EngineContext     ctx;
-    trdp_sim::trdp::TrdpAdapter adapter;
-    engine::pd::PdEngine        pdEngine;
-    engine::md::MdEngine        mdEngine;
+    std::unique_ptr<trdp_sim::EngineContext> ctx;
+    trdp_sim::trdp::TrdpAdapter              adapter;
+    engine::pd::PdEngine                     pdEngine;
+    engine::md::MdEngine                     mdEngine;
 };
 
 TEST_F(PdMdStateTest, PdReceiveUpdatesDataset)
@@ -107,8 +108,8 @@ TEST_F(PdMdStateTest, MdSessionTimesOutAndTracksRetries)
     }
 
     const std::array<uint8_t, 2> reply{0xAA, 0xBB};
-    TRDP_MD_INFO_T info{};
-    info.sessionId = sessionId;
+    TRDP_MD_INFO_T                info{};
+    info.sessionId = session->trdpSessionId;
     info.comId     = 2001;
     adapter.handleMdCallback(&info, reply.data(), reply.size());
     opt = mdEngine.getSession(sessionId);

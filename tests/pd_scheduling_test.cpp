@@ -37,22 +37,22 @@ namespace
         return path;
     }
 
-    trdp_sim::EngineContext buildContext()
+    std::unique_ptr<trdp_sim::EngineContext> buildContext()
     {
-        config::ConfigManager mgr;
-        trdp_sim::EngineContext ctx;
-        const auto              configPath = buildTwoPdConfig();
-        ctx.deviceConfig                    = mgr.loadDeviceConfigFromXml(configPath);
-        mgr.validateDeviceConfig(ctx.deviceConfig);
+        config::ConfigManager               mgr;
+        auto                                ctx = std::make_unique<trdp_sim::EngineContext>();
+        const auto                          configPath = buildTwoPdConfig();
+        ctx->deviceConfig                    = mgr.loadDeviceConfigFromXml(configPath);
+        mgr.validateDeviceConfig(ctx->deviceConfig);
 
-        auto defs = mgr.buildDataSetDefs(ctx.deviceConfig);
+        auto defs = mgr.buildDataSetDefs(ctx->deviceConfig);
         for (auto& def : defs)
         {
-            ctx.dataSetDefs[def.id] = def;
-            auto inst               = std::make_unique<data::DataSetInstance>();
-            inst->def               = &ctx.dataSetDefs[def.id];
+            ctx->dataSetDefs[def.id] = def;
+            auto inst                = std::make_unique<data::DataSetInstance>();
+            inst->def                = &ctx->dataSetDefs[def.id];
             inst->values.resize(def.elements.size());
-            ctx.dataSetInstances[def.id] = std::move(inst);
+            ctx->dataSetInstances[def.id] = std::move(inst);
         }
         return ctx;
     }
@@ -62,19 +62,19 @@ namespace
 class PdSchedulingTest : public ::testing::Test
 {
   protected:
-    PdSchedulingTest() : ctx(buildContext()), adapter(ctx), engine(ctx, adapter) { ctx.pdEngine = &engine; }
+    PdSchedulingTest() : ctx(buildContext()), adapter(*ctx), engine(*ctx, adapter) { ctx->pdEngine = &engine; }
 
     void SetUp() override { engine.initializeFromConfig(); }
 
-    trdp_sim::EngineContext     ctx;
-    trdp_sim::trdp::TrdpAdapter adapter;
-    engine::pd::PdEngine        engine;
+    std::unique_ptr<trdp_sim::EngineContext> ctx;
+    trdp_sim::trdp::TrdpAdapter              adapter;
+    engine::pd::PdEngine                     engine;
 };
 
 TEST_F(PdSchedulingTest, OrdersPdByNextDueTime)
 {
     auto now = std::chrono::steady_clock::now();
-    for (auto& pdPtr : ctx.pdTelegrams)
+    for (auto& pdPtr : ctx->pdTelegrams)
     {
         if (!pdPtr || !pdPtr->cfg || pdPtr->direction != engine::pd::Direction::PUBLISH)
             continue;
@@ -98,12 +98,12 @@ TEST_F(PdSchedulingTest, OrdersPdByNextDueTime)
 TEST_F(PdSchedulingTest, RedundantSendDropsChannelButContinues)
 {
     {
-        std::lock_guard<std::mutex> lk(ctx.simulation.mtx);
-        ctx.simulation.redundancy.busFailure   = true;
-        ctx.simulation.redundancy.failedChannel = 0;
+        std::lock_guard<std::mutex> lk(ctx->simulation.mtx);
+        ctx->simulation.redundancy.busFailure   = true;
+        ctx->simulation.redundancy.failedChannel = 0;
     }
     auto now = std::chrono::steady_clock::now();
-    for (auto& pdPtr : ctx.pdTelegrams)
+    for (auto& pdPtr : ctx->pdTelegrams)
     {
         if (!pdPtr || !pdPtr->cfg || pdPtr->direction != engine::pd::Direction::PUBLISH)
             continue;
@@ -121,7 +121,7 @@ TEST_F(PdSchedulingTest, RedundantSendDropsChannelButContinues)
     EXPECT_TRUE(log[0].dropped);
     EXPECT_FALSE(log[1].dropped);
 
-    for (auto& pdPtr : ctx.pdTelegrams)
+    for (auto& pdPtr : ctx->pdTelegrams)
     {
         if (!pdPtr || !pdPtr->cfg || pdPtr->direction != engine::pd::Direction::PUBLISH)
             continue;
