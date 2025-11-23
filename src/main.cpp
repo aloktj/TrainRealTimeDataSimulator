@@ -385,21 +385,69 @@ int main(int argc, char* argv[])
     const std::string bindHost = getEnvOrDefault("TRDP_HTTP_HOST", "127.0.0.1");
     const uint16_t    bindPort = static_cast<uint16_t>(std::stoi(getEnvOrDefault("TRDP_HTTP_PORT", "8848")));
 
+    std::optional<std::filesystem::path> frontendRoot;
+    std::vector<std::filesystem::path>   frontendCandidates{
+        std::filesystem::current_path() / "web/dist",
+        std::filesystem::current_path() / "web",
+    };
+
+    std::error_code exeEc;
+    auto            exePath = std::filesystem::canonical(argv[0], exeEc);
+    if (!exeEc)
+    {
+        auto exeDir = exePath.parent_path();
+        frontendCandidates.emplace_back(exeDir.parent_path() / "web/dist");
+        frontendCandidates.emplace_back(exeDir.parent_path() / "share/trdp-simulator/web");
+    }
+
+    frontendCandidates.emplace_back("/usr/share/trdp-simulator/web");
+
+    for (const auto& candidate : frontendCandidates)
+    {
+        auto indexFile = candidate / "index.html";
+        if (std::filesystem::exists(indexFile))
+        {
+            frontendRoot = candidate;
+            break;
+        }
+    }
+
+    if (frontendRoot)
+    {
+        app().setDocumentRoot(frontendRoot->string());
+        diagMgr.log(diag::Severity::INFO, "HTTP",
+                    std::string("Serving UI from ") + frontendRoot->string());
+    }
+
     app().addListener(bindHost, bindPort);
     app().setThreadNum(std::max(2u, std::thread::hardware_concurrency()));
     app().setLogLevel(trantor::Logger::kTrace);
     diagMgr.log(diag::Severity::INFO, "HTTP",
                 std::string("Listening on ") + bindHost + ":" + std::to_string(bindPort));
 
-    // Friendly root handler
+    // Friendly root handler (prefer UI if present)
     app().registerHandler(
         "/",
-        [&jsonResponse, &checkThrottle](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        [&jsonResponse, &checkThrottle, frontendRoot](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
         {
             if (!checkThrottle(req, cb))
                 return;
+
+            if (frontendRoot)
+            {
+                auto indexPath = *frontendRoot / "index.html";
+                if (std::filesystem::exists(indexPath))
+                {
+                    auto resp = HttpResponse::newFileResponse(indexPath.string());
+                    resp->setExpiredTime(0);
+                    cb(resp);
+                    return;
+                }
+            }
+
             cb(jsonResponse({{"message", "TRDP simulator is running"},
-                             {"docs", "See /api/diag/metrics or /api/diag/events for runtime details."}},
+                             {"docs", "See /api/diag/metrics or /api/diag/events for runtime details."},
+                             {"ui", "UI assets not found; build with `npm --prefix web run build` to enable the web login page."}},
                             k200OK));
         },
         {Get, Head});
