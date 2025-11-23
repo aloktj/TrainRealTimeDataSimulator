@@ -63,6 +63,7 @@ namespace trdp_sim::trdp
                                                                    const std::optional<std::string>& nic = std::nullopt,
                                                                    const std::optional<std::string>& hostIp = std::nullopt);
         bool                                        leaveMulticast(const std::string& ifaceName, const std::string& group);
+        bool                                        recoverInterface(const config::BusInterfaceConfig& iface);
         std::vector<trdp_sim::EngineContext::MulticastGroupState> getMulticastState() const;
 
         // Helpful for tests/stubs

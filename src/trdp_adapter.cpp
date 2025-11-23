@@ -184,6 +184,25 @@ namespace trdp_sim::trdp
         return removed;
     }
 
+    bool TrdpAdapter::recoverInterface(const config::BusInterfaceConfig& iface)
+    {
+        std::vector<std::string> currentGroups;
+        {
+            std::lock_guard<std::mutex> lk(m_multicastMtx);
+            auto                        it = m_multicastMembership.find(iface.name);
+            if (it != m_multicastMembership.end())
+                currentGroups.assign(it->second.begin(), it->second.end());
+        }
+
+        for (const auto& group : currentGroups)
+        {
+            leaveMulticast(iface.name, group);
+        }
+
+        applyMulticastConfig(iface);
+        return true;
+    }
+
     std::vector<trdp_sim::EngineContext::MulticastGroupState> TrdpAdapter::getMulticastState() const
     {
         std::lock_guard<std::mutex> lk(m_ctx.multicastMtx);
