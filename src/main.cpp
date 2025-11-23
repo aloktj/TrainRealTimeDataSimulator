@@ -25,6 +25,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include <trantor/utils/Logger.h>
+
 using namespace drogon;
 
 int main(int argc, char* argv[])
@@ -82,6 +84,42 @@ int main(int argc, char* argv[])
             pcapRxOverride = true;
         }
     }
+
+    const auto getEnvOrDefault = [](const std::string& key, const std::string& def) {
+        const char* val = std::getenv(key.c_str());
+        if (val && *val)
+            return std::string(val);
+        return def;
+    };
+
+    const auto getEnv = [](const std::string& key) -> std::optional<std::string> {
+        const char* val = std::getenv(key.c_str());
+        if (val && *val)
+            return std::string(val);
+        return std::nullopt;
+    };
+
+    const auto parseSeverity = [](const std::string& level) {
+        if (level.empty())
+            return diag::Severity::DEBUG;
+
+        char c = static_cast<char>(std::toupper(static_cast<unsigned char>(level.front())));
+        switch (c)
+        {
+        case 'D':
+            return diag::Severity::DEBUG;
+        case 'I':
+            return diag::Severity::INFO;
+        case 'W':
+            return diag::Severity::WARN;
+        case 'E':
+            return diag::Severity::ERROR;
+        case 'F':
+            return diag::Severity::FATAL;
+        default:
+            return diag::Severity::DEBUG;
+        }
+    };
 
     trdp_sim::EngineContext ctx;
 
@@ -162,9 +200,50 @@ int main(int argc, char* argv[])
     if (pcapTxOverride)
         pcapCfg.captureTx = *pcapTxOverride;
 
-    diag::DiagnosticManager diagMgr(ctx, pdEngine, mdEngine, adapter, {}, pcapCfg);
+    const auto parseBoolEnv = [](const std::optional<std::string>& val, bool defaultValue) {
+        if (!val)
+            return defaultValue;
+        auto lowered = *val;
+        std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        return lowered != "0" && lowered != "false" && lowered != "no" && lowered != "off";
+    };
+
+    diag::LogConfig logCfg{};
+    logCfg.minimumSeverity = diag::Severity::DEBUG;
+
+    if (ctx.deviceConfig.debug)
+    {
+        auto dbg               = *ctx.deviceConfig.debug;
+        logCfg.minimumSeverity = parseSeverity(std::string(1, dbg.level));
+        if (!dbg.fileName.empty())
+        {
+            logCfg.filePath         = dbg.fileName;
+            logCfg.maxFileSizeBytes = dbg.fileSize;
+        }
+    }
+
+    if (auto envLevel = getEnv("TRDP_LOG_LEVEL"))
+        logCfg.minimumSeverity = parseSeverity(*envLevel);
+    logCfg.logToStdout = parseBoolEnv(getEnv("TRDP_LOG_STDOUT"), true);
+
+    diag::DiagnosticManager diagMgr(ctx, pdEngine, mdEngine, adapter, logCfg, pcapCfg);
     ctx.diagManager = &diagMgr;
     diagMgr.start();
+
+    auto effectiveLevel = logCfg.minimumSeverity;
+    diagMgr.log(diag::Severity::INFO, "Startup",
+                std::string("Initialized with config ") + ctx.configPath +
+                    ", log level " + (effectiveLevel == diag::Severity::DEBUG
+                                          ? "DEBUG"
+                                          : effectiveLevel == diag::Severity::INFO
+                                                ? "INFO"
+                                                : effectiveLevel == diag::Severity::WARN
+                                                      ? "WARN"
+                                                      : effectiveLevel == diag::Severity::ERROR
+                                                            ? "ERROR"
+                                                            : "FATAL"));
 
     trdp_sim::BackendEngine backend(ctx, pdEngine, mdEngine, diagMgr);
     backend.applyPreloadedConfiguration(ctx.deviceConfig, false);
@@ -303,18 +382,27 @@ int main(int argc, char* argv[])
         }
     };
 
-    auto getEnvOrDefault = [](const std::string& key, const std::string& def) {
-        const char* val = std::getenv(key.c_str());
-        if (val && *val)
-            return std::string(val);
-        return def;
-    };
-
     const std::string bindHost = getEnvOrDefault("TRDP_HTTP_HOST", "127.0.0.1");
     const uint16_t    bindPort = static_cast<uint16_t>(std::stoi(getEnvOrDefault("TRDP_HTTP_PORT", "8848")));
 
     app().addListener(bindHost, bindPort);
     app().setThreadNum(std::max(2u, std::thread::hardware_concurrency()));
+    app().setLogLevel(trantor::Logger::kTrace);
+    diagMgr.log(diag::Severity::INFO, "HTTP",
+                std::string("Listening on ") + bindHost + ":" + std::to_string(bindPort));
+
+    // Friendly root handler
+    app().registerHandler(
+        "/",
+        [&jsonResponse, &checkThrottle](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            if (!checkThrottle(req, cb))
+                return;
+            cb(jsonResponse({{"message", "TRDP simulator is running"},
+                             {"docs", "See /api/diag/metrics or /api/diag/events for runtime details."}},
+                            k200OK));
+        },
+        {Get, Head});
 
     // Auth login
     app().registerHandler(

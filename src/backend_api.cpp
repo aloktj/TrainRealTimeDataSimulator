@@ -499,7 +499,6 @@ namespace api
             nlohmann::json item;
             item["name"]           = iface.name;
             item["hostIp"]         = iface.hostIp.value_or("");
-            item["redundant"]       = iface.redundant;
             item["multicastGroups"] = nlohmann::json::array();
             for (const auto& group : iface.multicastGroups)
             {
