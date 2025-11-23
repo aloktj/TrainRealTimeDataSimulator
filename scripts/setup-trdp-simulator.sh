@@ -20,6 +20,7 @@ set -euo pipefail
 # -----------------------------
 
 BUILD_TYPE="Debug"
+USE_TCNOPEN=0
 
 # Try to guess a sane default for TRDP root (you can override with env or args)
 DEFAULT_TRDP_ROOT="${HOME}/git/trdp"
@@ -41,6 +42,7 @@ Options:
   --trdp-lib FILE        Path to libtrdp.a
   --trdp-include DIR     Path to TRDP headers (tau_* etc.)
   --use-stubs            Build with built-in TRDP stub implementation (skips TRDP detection)
+  --use-tcnopen          Build TRDP from the TCNopen submodule (implies --use-stubs=0)
   --build-type TYPE      CMake build type (Debug/Release; default: ${BUILD_TYPE})
   --no-apt               Skip apt-get dependency installation
   -h, --help             Show this help
@@ -67,6 +69,11 @@ while [[ $# -gt 0 ]]; do
             USE_STUBS=1
             shift 1
             ;;
+        --use-tcnopen)
+            USE_TCNOPEN=1
+            USE_STUBS=0
+            shift 1
+            ;;
         --build-type)
             BUILD_TYPE="$2"
             shift 2
@@ -90,12 +97,16 @@ done
 # Normalize TRDP_ROOT (no trailing slash)
 TRDP_ROOT="${TRDP_ROOT%/}"
 
-if [[ "${USE_STUBS}" -eq 1 ]]; then
+if [[ "${USE_TCNOPEN}" -eq 1 ]]; then
+    echo "=== TRDP Simulator setup (TCNopen submodule) ==="
+    echo "(TRDP stubs are disabled when using TCNopen)"
+elif [[ "${USE_STUBS}" -eq 1 ]]; then
     echo "=== TRDP Simulator setup (stubbed TRDP) ==="
 else
     echo "=== TRDP Simulator setup (linking to TRDP) ==="
 fi
 echo "Build type        : ${BUILD_TYPE}"
+echo "Use TCNopen       : ${USE_TCNOPEN}"
 echo "TRDP root         : ${TRDP_ROOT}"
 echo "TRDP lib (input)  : ${TRDP_LIB_PATH:-<auto-detect>}"
 echo "TRDP include (in) : ${TRDP_INCLUDE_DIR:-<auto-detect>}"
@@ -122,7 +133,7 @@ fi
 # Detect TRDP include / lib if not provided (only when not using stubs)
 # -----------------------------
 
-if [[ "${USE_STUBS}" -ne 1 ]]; then
+if [[ "${USE_STUBS}" -ne 1 && "${USE_TCNOPEN}" -ne 1 ]]; then
     if [[ -z "${TRDP_LIB_PATH}" ]]; then
         echo "=== Auto-detecting libtrdp.a under ${TRDP_ROOT} ==="
         # Try a few common patterns
@@ -169,7 +180,9 @@ if [[ "${USE_STUBS}" -ne 1 ]]; then
     fi
 fi
 
-if [[ "${USE_STUBS}" -ne 1 ]]; then
+if [[ "${USE_TCNOPEN}" -eq 1 ]]; then
+    echo "Using TRDP from TCNopen submodule"
+elif [[ "${USE_STUBS}" -ne 1 ]]; then
     echo "Using TRDP_LIB_PATH   = ${TRDP_LIB_PATH}"
     echo "Using TRDP_INCLUDE_DIR= ${TRDP_INCLUDE_DIR}"
 else
@@ -192,7 +205,10 @@ CMAKE_ARGS=(
     -DCMAKE_BUILD_TYPE="${BUILD_TYPE}"
 )
 
-if [[ "${USE_STUBS}" -eq 1 ]]; then
+if [[ "${USE_TCNOPEN}" -eq 1 ]]; then
+    git submodule update --init --recursive
+    CMAKE_ARGS+=("-DTRDP_USE_STUBS=OFF" "-DTRDP_USE_TCNOPEN=ON")
+elif [[ "${USE_STUBS}" -eq 1 ]]; then
     CMAKE_ARGS+=("-DTRDP_USE_STUBS=ON")
 else
     CMAKE_ARGS+=(
