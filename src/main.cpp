@@ -388,7 +388,6 @@ int main(int argc, char* argv[])
     std::optional<std::filesystem::path> frontendRoot;
     std::vector<std::filesystem::path>   frontendCandidates{
         std::filesystem::current_path() / "web/dist",
-        std::filesystem::current_path() / "web",
     };
 
     std::error_code exeEc;
