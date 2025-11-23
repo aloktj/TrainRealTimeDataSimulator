@@ -33,4 +33,6 @@ Example (matching the environment check in the issue):
 
 The program prints the return value from `tlp_publish()`. A zero exit code
 indicates success; a non-zero exit code prints the TRDP error code to help
-pinpoint configuration issues (e.g., `-6` for `TRDP_SOCK_ERR`).
+pinpoint configuration issues (e.g., `-6` for `TRDP_SOCK_ERR`). The smoketest
+also enables the TRDP debug callback so you see which internal socket or
+publish path failed before the error is returned.

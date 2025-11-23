@@ -16,12 +16,31 @@
 
 static TRDP_IP_ADDR_T parse_ip(const char *ip)
 {
-    if (ip == NULL)
+    struct in_addr addr = {0};
+
+    if (ip == NULL || inet_aton(ip, &addr) == 0)
     {
         return 0;
     }
 
-    return inet_addr(ip);
+    return addr.s_addr;
+}
+
+static void debug_out(void *ref_con, VOS_LOG_T category, const CHAR8 *pTime, const CHAR8 *pFile,
+                      UINT16 line, const CHAR8 *pMsg)
+{
+    (void)ref_con;
+
+    const char *levels[] = {"ERR", "WRN", "NRM", "INF", "DBG"};
+    const size_t idx     = (size_t)category < (sizeof(levels) / sizeof(levels[0])) ? (size_t)category : 0u;
+    const size_t len     = (pMsg != NULL) ? strlen(pMsg) : 0u;
+    const char   suffix  = (len > 0u && pMsg[len - 1] == '\n') ? '\0' : '\n';
+
+    fprintf(stderr, "[%s] %s:%u %s%c", levels[idx], pFile, line, (pMsg != NULL) ? pMsg : "", suffix);
+    if (pTime != NULL)
+    {
+        fprintf(stderr, "    at %s\n", pTime);
+    }
 }
 
 static void fill_pd_config(TRDP_PD_CONFIG_T *pd_config, UINT16 port)
@@ -75,7 +94,10 @@ int main(int argc, char *argv[])
 
     printf("TRDP smoketest: COMID=%u %s -> %s:%u\n", com_id, argv[1], argv[2], dest_port);
 
-    err = tlc_init(NULL, NULL, &mem_config);
+    process_config.options = TRDP_OPTION_BLOCK;
+    (void)snprintf((char *)process_config.hostName, sizeof(process_config.hostName), "trdp-smoketest");
+
+    err = tlc_init(debug_out, NULL, &mem_config);
     if (err != TRDP_NO_ERR)
     {
         printf("tlc_init failed: %d\n", err);
