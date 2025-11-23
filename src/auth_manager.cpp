@@ -30,6 +30,16 @@ namespace auth
     AuthManager::AuthManager()
     {
         loadDefaultsFromEnv();
+        const auto ttlEnv = getEnvOrDefault("TRDP_SESSION_TTL_MIN", "30");
+        try
+        {
+            auto ttl = std::stoul(ttlEnv);
+            if (ttl > 0 && ttl <= 24 * 60)
+                m_sessionTtl = std::chrono::minutes(ttl);
+        }
+        catch (const std::exception&)
+        {
+        }
     }
 
     std::optional<Session> AuthManager::login(const std::string& username, const std::string& password)
@@ -43,9 +53,11 @@ namespace auth
 
         Session sess;
         sess.token     = generateToken();
+        sess.csrfToken = generateCsrfToken();
         sess.username  = username;
         sess.role      = it->second.role;
-        sess.expiresAt = std::chrono::system_clock::now() + std::chrono::hours(8);
+        sess.expiresAt = std::chrono::system_clock::now() + m_sessionTtl;
+        sess.lastAccess = std::chrono::system_clock::now();
         m_sessions[sess.token] = sess;
         return sess;
     }
@@ -56,6 +68,7 @@ namespace auth
         auto it = m_sessions.find(token);
         if (it == m_sessions.end())
             return std::nullopt;
+        refreshSession(it->second);
         return it->second;
     }
 
@@ -80,6 +93,22 @@ namespace auth
         std::uniform_int_distribution<uint64_t> dist;
         std::ostringstream                    oss;
         oss << std::hex << dist(gen) << dist(gen);
+        return oss.str();
+    }
+
+    std::string AuthManager::generateCsrfToken() const
+    {
+        std::array<unsigned char, 32> bytes{};
+        if (RAND_bytes(bytes.data(), static_cast<int>(bytes.size())) != 1)
+        {
+            std::random_device rd;
+            for (auto& b : bytes)
+                b = static_cast<unsigned char>(rd());
+        }
+        std::ostringstream oss;
+        oss << std::hex << std::setfill('0');
+        for (auto b : bytes)
+            oss << std::setw(2) << static_cast<int>(b);
         return oss.str();
     }
 
@@ -114,6 +143,15 @@ namespace auth
             else
                 ++it;
         }
+    }
+
+    void AuthManager::refreshSession(Session& session)
+    {
+        const auto now = std::chrono::system_clock::now();
+        if (session.expiresAt <= now)
+            return;
+        session.lastAccess = now;
+        session.expiresAt  = now + m_sessionTtl;
     }
 
     std::string AuthManager::generateSalt() const
