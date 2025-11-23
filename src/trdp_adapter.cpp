@@ -151,6 +151,9 @@ namespace trdp_sim::trdp
 
     bool TrdpAdapter::init()
     {
+        if (m_ctx.trdpSession)
+            return true;
+
         TRDP_MEM_CONFIG_T memCfg{};
 
         TRDP_PD_CONFIG_T      pdCfg{};

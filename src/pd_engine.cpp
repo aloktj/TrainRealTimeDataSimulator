@@ -79,13 +79,14 @@ namespace engine::pd
         stop();
     }
 
-    void PdEngine::initializeFromConfig()
+    void PdEngine::initializeFromConfig(bool activateTransport)
     {
         m_ctx.pdTelegrams.clear();
 
         for (const auto& iface : m_ctx.deviceConfig.interfaces)
         {
-            m_adapter.applyMulticastConfig(iface);
+            if (activateTransport)
+                m_adapter.applyMulticastConfig(iface);
             for (const auto& tel : iface.telegrams)
             {
                 if (!tel.pdParam)
@@ -105,7 +106,7 @@ namespace engine::pd
                 rt->dataset             = dsIt->second.get();
                 rt->dataset->isOutgoing = !tel.destinations.empty();
                 rt->direction           = tel.destinations.empty() ? Direction::SUBSCRIBE : Direction::PUBLISH;
-                rt->enabled             = true;
+                rt->enabled             = activateTransport;
                 rt->activeChannel       = 0;
                 rt->redundantActive     = tel.pdParam && tel.pdParam->redundant > 0;
                 if (!tel.destinations.empty())
@@ -125,13 +126,13 @@ namespace engine::pd
                     }
                 }
 
-                if (rt->direction == Direction::SUBSCRIBE)
+                if (activateTransport && rt->direction == Direction::SUBSCRIBE)
                 {
                     int rc = m_adapter.subscribePd(*rt);
                     if (rc != 0)
                         std::cerr << "Failed to subscribe PD COM ID " << tel.comId << " (rc=" << rc << ")" << std::endl;
                 }
-                else
+                else if (activateTransport)
                 {
                     int rc = m_adapter.publishPd(*rt);
                     if (rc != 0)

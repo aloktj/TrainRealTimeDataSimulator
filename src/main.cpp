@@ -131,7 +131,6 @@ int main(int argc, char* argv[])
     ctx.configPath   = configPath;
 
     trdp_sim::trdp::TrdpAdapter adapter(ctx);
-    adapter.init();
 
     engine::pd::PdEngine pdEngine(ctx, adapter);
     engine::md::MdEngine mdEngine(ctx, adapter);
@@ -168,7 +167,7 @@ int main(int argc, char* argv[])
     diagMgr.start();
 
     trdp_sim::BackendEngine backend(ctx, pdEngine, mdEngine, diagMgr);
-    backend.applyPreloadedConfiguration(ctx.deviceConfig);
+    backend.applyPreloadedConfiguration(ctx.deviceConfig, false);
 
     api::BackendApi api(ctx, backend, pdEngine, mdEngine, adapter, diagMgr);
 
@@ -584,6 +583,43 @@ int main(int argc, char* argv[])
                 return;
             }
             cb(jsonResponse(api.getDataSetValues(dataSetId)));
+        },
+        {Post});
+
+    // Transport lifecycle
+    app().registerHandler(
+        "/api/transport/status",
+        [&api, &requireRole, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            if (!requireRole(req, cb, auth::Role::Viewer))
+                return;
+            cb(jsonResponse(api.getTransportStatus()));
+        },
+        {Get});
+
+    app().registerHandler(
+        "/api/transport/start",
+        [&api, &requireRole, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            if (!requireRole(req, cb, auth::Role::Developer))
+                return;
+            if (!api.startTransport())
+            {
+                cb(jsonResponse({{"error", "failed to start TRDP transport"}}, k500InternalServerError));
+                return;
+            }
+            cb(jsonResponse(api.getTransportStatus()));
+        },
+        {Post});
+
+    app().registerHandler(
+        "/api/transport/stop",
+        [&api, &requireRole, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            if (!requireRole(req, cb, auth::Role::Developer))
+                return;
+            api.stopTransport();
+            cb(jsonResponse(api.getTransportStatus()));
         },
         {Post});
 

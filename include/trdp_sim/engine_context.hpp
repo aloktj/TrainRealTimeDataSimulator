@@ -163,6 +163,9 @@ namespace trdp_sim
         // Global running flag
         bool running{false};
 
+        // Whether TRDP transport has been activated (publish/subscribe running)
+        bool transportActive{false};
+
         // Path of the active XML configuration on disk
         std::string configPath;
 
