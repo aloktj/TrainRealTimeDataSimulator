@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.16)
 
 project(trdp-simulator
     VERSION 0.1.0
-    LANGUAGES CXX)
+    LANGUAGES C CXX)
 
 # -------------------------
 # Options
@@ -184,8 +184,40 @@ endforeach()
 # -------------------------
 # Executable
 # -------------------------
+if(POLICY CMP0153)
+    # Allow older find modules (e.g., Drogon's FindJsoncpp) that still use
+    # exec_program(). Once Drogon updates its dependency modules we can drop
+    # this override.
+    cmake_policy(SET CMP0153 OLD)
+endif()
+
 if(TRDP_ENABLE_APP)
-    find_package(Drogon QUIET)
+    # Prefer a config-package search (system install or provided Drogon_DIR),
+    # but still fall back to the vendored submodule if it exists.
+    find_package(Drogon CONFIG QUIET PATHS ${Drogon_DIR})
+
+    if(NOT Drogon_FOUND)
+        find_path(DROGON_INCLUDE_DIR NAMES drogon/drogon.h PATH_SUFFIXES drogon)
+        find_library(DROGON_LIBRARY NAMES drogon)
+        if(NOT JSONCPP_INCLUDE_DIRS)
+            find_path(JSONCPP_INCLUDE_DIRS NAMES json/json.h PATH_SUFFIXES jsoncpp)
+        endif()
+        if(NOT JSONCPP_LIBRARIES)
+            find_library(JSONCPP_LIBRARIES NAMES jsoncpp)
+        endif()
+        if(NOT TRANTOR_LIBRARY)
+            find_library(TRANTOR_LIBRARY NAMES trantor)
+        endif()
+
+        if(DROGON_INCLUDE_DIR AND DROGON_LIBRARY)
+            add_library(Drogon::Drogon UNKNOWN IMPORTED)
+            set_target_properties(Drogon::Drogon PROPERTIES
+                IMPORTED_LOCATION ${DROGON_LIBRARY}
+                INTERFACE_INCLUDE_DIRECTORIES "${DROGON_INCLUDE_DIR};${JSONCPP_INCLUDE_DIRS}"
+                INTERFACE_LINK_LIBRARIES "${JSONCPP_LIBRARIES};${TRANTOR_LIBRARY};pthread")
+            set(Drogon_FOUND TRUE)
+        endif()
+    endif()
     if(NOT Drogon_FOUND)
         set(_drogon_dir "${CMAKE_CURRENT_SOURCE_DIR}/external/drogon")
         if(EXISTS "${_drogon_dir}/CMakeLists.txt")
@@ -262,6 +294,14 @@ if(TRDP_ENABLE_TESTS)
 
     include(GoogleTest)
     gtest_discover_tests(trdp-simulator-tests)
+endif()
+
+if(NOT TRDP_USE_STUBS AND TRDP_LIB_TARGET)
+    add_executable(trdp-publish-smoketest tests/trdp_publish_smoketest.c)
+    target_link_libraries(trdp-publish-smoketest PRIVATE ${TRDP_LIB_TARGET})
+    target_include_directories(trdp-publish-smoketest PRIVATE ${TRDP_INCLUDE_DIR_FOUND})
+    target_compile_options(trdp-publish-smoketest PRIVATE ${_warn_flags} ${_san_flags})
+    target_link_options(trdp-publish-smoketest PRIVATE ${_san_flags})
 endif()
 
 # -------------------------
