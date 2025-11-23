@@ -71,7 +71,7 @@ namespace engine::pd
         PdEngine(trdp_sim::EngineContext& ctx, trdp_sim::trdp::TrdpAdapter& adapter);
         ~PdEngine();
 
-        void initializeFromConfig();
+        void initializeFromConfig(bool activateTransport);
         void start();
         void stop();
 

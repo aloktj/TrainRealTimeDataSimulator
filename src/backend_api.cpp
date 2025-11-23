@@ -475,6 +475,68 @@ namespace api
         m_ctx.configPath = xmlPath;
     }
 
+    bool BackendApi::startTransport()
+    {
+        return m_backend.startTransport();
+    }
+
+    void BackendApi::stopTransport()
+    {
+        m_backend.stopTransport();
+    }
+
+    nlohmann::json BackendApi::getTransportStatus() const
+    {
+        nlohmann::json j;
+        j["active"]      = m_backend.transportActive();
+        j["configPath"]  = m_ctx.configPath;
+        j["interfaces"]  = nlohmann::json::array();
+        j["pdTelegrams"] = nlohmann::json::array();
+        j["mdSessions"]  = nlohmann::json::array();
+
+        for (const auto& iface : m_ctx.deviceConfig.interfaces)
+        {
+            nlohmann::json item;
+            item["name"]           = iface.name;
+            item["hostIp"]         = iface.hostIp.value_or("");
+            item["redundant"]       = iface.redundant;
+            item["multicastGroups"] = nlohmann::json::array();
+            for (const auto& group : iface.multicastGroups)
+            {
+                nlohmann::json g;
+                g["address"] = group.address;
+                g["nic"]     = group.nic.value_or("");
+                item["multicastGroups"].push_back(g);
+            }
+            j["interfaces"].push_back(std::move(item));
+        }
+
+        for (const auto& telPtr : m_ctx.pdTelegrams)
+        {
+            if (!telPtr || !telPtr->cfg)
+                continue;
+            nlohmann::json item;
+            item["name"]      = telPtr->cfg->name;
+            item["comId"]     = telPtr->cfg->comId;
+            item["dataSetId"] = telPtr->cfg->dataSetId;
+            item["direction"] = telPtr->direction == engine::pd::Direction::PUBLISH ? "PUBLISH" : "SUBSCRIBE";
+            j["pdTelegrams"].push_back(std::move(item));
+        }
+
+        for (const auto& [id, sessPtr] : m_ctx.mdSessions)
+        {
+            if (!sessPtr || !sessPtr->telegram)
+                continue;
+            nlohmann::json item;
+            item["sessionId"] = id;
+            item["comId"]     = sessPtr->comId;
+            item["role"]      = sessPtr->role == engine::md::MdRole::REQUESTER ? "REQUESTER" : "RESPONDER";
+            j["mdSessions"].push_back(std::move(item));
+        }
+
+        return j;
+    }
+
     nlohmann::json BackendApi::getConfigSummary() const
     {
         nlohmann::json j;
@@ -497,8 +559,9 @@ namespace api
 
         j["pdTelegrams"]                  = pdCount;
         j["mdTelegrams"]                  = mdCount;
-        j["runtime"]["activePdTelegrams"] = m_ctx.pdTelegrams.size();
-        j["runtime"]["activeMdSessions"]  = m_ctx.mdSessions.size();
+        j["runtime"]["transportActive"]   = m_backend.transportActive();
+        j["runtime"]["activePdTelegrams"] = m_backend.transportActive() ? m_ctx.pdTelegrams.size() : 0;
+        j["runtime"]["activeMdSessions"]  = m_backend.transportActive() ? m_ctx.mdSessions.size() : 0;
         return j;
     }
 

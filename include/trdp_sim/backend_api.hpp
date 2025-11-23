@@ -44,6 +44,9 @@ namespace api
 
         // Config and control:
         void           reloadConfiguration(const std::string& xmlPath);
+        bool           startTransport();
+        void           stopTransport();
+        nlohmann::json getTransportStatus() const;
         nlohmann::json getConfigSummary() const;
         nlohmann::json getConfigDetail() const;
         nlohmann::json getMulticastStatus() const;

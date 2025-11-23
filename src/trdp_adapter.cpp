@@ -51,14 +51,41 @@ namespace trdp_sim::trdp
         {
             if (!maybeIp || maybeIp->empty())
                 return 0;
-            return inet_addr(maybeIp->c_str());
+            return toIp(*maybeIp);
         }
 
         TRDP_IP_ADDR_T toIp(const std::string& ip)
         {
             if (ip.empty())
                 return 0;
-            return inet_addr(ip.c_str());
+
+            std::string ipOnly = ip;
+
+            // Strip URI scheme if present (e.g. "udp://239.1.1.1:17224").
+            if (const auto pos = ipOnly.find("://"); pos != std::string::npos)
+            {
+                ipOnly = ipOnly.substr(pos + 3);
+            }
+
+            // Discard any trailing path or port information.
+            if (const auto slash = ipOnly.find('/'); slash != std::string::npos)
+            {
+                ipOnly = ipOnly.substr(0, slash);
+            }
+            if (const auto colon = ipOnly.find(':'); colon != std::string::npos)
+            {
+                ipOnly = ipOnly.substr(0, colon);
+            }
+
+            struct in_addr addr
+            {
+            };
+
+            if (inet_aton(ipOnly.c_str(), &addr) == 0)
+                return 0;
+
+            /* TRDP expects host-order IP integers. */
+            return static_cast<TRDP_IP_ADDR_T>(ntohl(addr.s_addr));
         }
 
         void pdCallback(void* refCon, TRDP_APP_SESSION_T /*session*/, const TRDP_PD_INFO_T* info, UINT8* data,
@@ -124,6 +151,9 @@ namespace trdp_sim::trdp
 
     bool TrdpAdapter::init()
     {
+        if (m_ctx.trdpSession)
+            return true;
+
         TRDP_MEM_CONFIG_T memCfg{};
 
         TRDP_PD_CONFIG_T      pdCfg{};

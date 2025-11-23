@@ -31,12 +31,16 @@ namespace trdp_sim
 
         void loadConfiguration(const std::string& path);
         void reloadConfiguration(const std::string& path);
-        void applyPreloadedConfiguration(const config::DeviceConfig& cfg);
+        void applyPreloadedConfiguration(const config::DeviceConfig& cfg, bool activateTransport = false);
+
+        bool startTransport();
+        void stopTransport();
+        bool transportActive() const { return m_ctx.transportActive; }
 
         const config::DeviceConfig& deviceConfig() const { return m_ctx.deviceConfig; }
 
       private:
-        void applyConfiguration(const config::DeviceConfig& cfg);
+        void applyConfiguration(const config::DeviceConfig& cfg, bool activateTransport);
         void rebuildDataSets(const config::DeviceConfig& cfg);
 
         EngineContext&             m_ctx;

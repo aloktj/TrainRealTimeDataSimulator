@@ -21,6 +21,22 @@ namespace engine::pd
     {
         using Rule = trdp_sim::SimulationControls::InjectionRule;
 
+        TRDP_IP_ADDR_T parseIp(const std::string& ip)
+        {
+            if (ip.empty())
+                return 0;
+
+            struct in_addr addr
+            {
+            };
+
+            if (inet_aton(ip.c_str(), &addr) == 0)
+                return 0;
+
+            /* TRDP expects host-order IP integers. */
+            return static_cast<TRDP_IP_ADDR_T>(ntohl(addr.s_addr));
+        }
+
         std::optional<Rule> findRule(const trdp_sim::EngineContext& ctx, uint32_t comId, uint32_t dataSetId)
         {
             std::lock_guard<std::mutex> lk(ctx.simulation.mtx);
@@ -63,13 +79,14 @@ namespace engine::pd
         stop();
     }
 
-    void PdEngine::initializeFromConfig()
+    void PdEngine::initializeFromConfig(bool activateTransport)
     {
         m_ctx.pdTelegrams.clear();
 
         for (const auto& iface : m_ctx.deviceConfig.interfaces)
         {
-            m_adapter.applyMulticastConfig(iface);
+            if (activateTransport)
+                m_adapter.applyMulticastConfig(iface);
             for (const auto& tel : iface.telegrams)
             {
                 if (!tel.pdParam)
@@ -89,7 +106,7 @@ namespace engine::pd
                 rt->dataset             = dsIt->second.get();
                 rt->dataset->isOutgoing = !tel.destinations.empty();
                 rt->direction           = tel.destinations.empty() ? Direction::SUBSCRIBE : Direction::PUBLISH;
-                rt->enabled             = true;
+                rt->enabled             = activateTransport;
                 rt->activeChannel       = 0;
                 rt->redundantActive     = tel.pdParam && tel.pdParam->redundant > 0;
                 if (!tel.destinations.empty())
@@ -97,7 +114,7 @@ namespace engine::pd
                     for (const auto& dest : tel.destinations)
                     {
                         PdTelegramRuntime::PublicationChannel ch{};
-                        ch.destIp = dest.uri.empty() ? 0 : inet_addr(dest.uri.c_str());
+                        ch.destIp = parseIp(dest.uri);
                         rt->pubChannels.push_back(ch);
                     }
 
@@ -109,13 +126,13 @@ namespace engine::pd
                     }
                 }
 
-                if (rt->direction == Direction::SUBSCRIBE)
+                if (activateTransport && rt->direction == Direction::SUBSCRIBE)
                 {
                     int rc = m_adapter.subscribePd(*rt);
                     if (rc != 0)
                         std::cerr << "Failed to subscribe PD COM ID " << tel.comId << " (rc=" << rc << ")" << std::endl;
                 }
-                else
+                else if (activateTransport)
                 {
                     int rc = m_adapter.publishPd(*rt);
                     if (rc != 0)
