@@ -1,0 +1,3 @@
+This metadata complements the CPack-generated .deb by documenting the
+runtime footprint and unit file. It can be used with debhelper for
+teams that prefer dpkg-buildpackage over CPack.

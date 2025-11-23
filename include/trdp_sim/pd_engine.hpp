@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -82,6 +83,9 @@ namespace engine::pd
 
         // Called from TRDP adapter:
         void onPdReceived(uint32_t comId, const uint8_t* data, std::size_t len);
+
+        // Exposed for deterministic scheduling tests and single-tick processing
+        void processPublishersOnce(std::chrono::steady_clock::time_point now);
 
         bool isRunning() const
         {

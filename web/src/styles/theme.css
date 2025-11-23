@@ -1,25 +1,27 @@
 :root {
-  --bg: #0e1013;
-  --panel: #141821;
-  --text: #e6e9ef;
-  --muted: #9ca3af;
-  --accent: #4ade80;
-  --accent-strong: #22c55e;
-  --warning: #fbbf24;
-  --danger: #ef4444;
-  --info: #38bdf8;
+  --bg: #0c1116;
+  --panel: #151b23;
+  --text: #e6edf5;
+  --muted: #9aa7b8;
+  --accent: #2f86c9;
+  --accent-strong: #1c74b6;
+  --warning: #f0ad36;
+  --danger: #d64545;
+  --info: #4db6ac;
+  --outline: #2a3038;
 }
 
 .light {
-  --bg: #f7fafc;
+  --bg: #f4f7fb;
   --panel: #ffffff;
-  --text: #0f172a;
+  --text: #0e1621;
   --muted: #4b5563;
-  --accent: #0ea5e9;
-  --accent-strong: #0284c7;
-  --warning: #d97706;
-  --danger: #b91c1c;
-  --info: #2563eb;
+  --accent: #1b74c7;
+  --accent-strong: #135b9c;
+  --warning: #c37b0b;
+  --danger: #b13333;
+  --info: #2c7a78;
+  --outline: #d8dde3;
 }
 
 body {
@@ -27,6 +29,10 @@ body {
   font-family: "Inter", system-ui, -apple-system, sans-serif;
   background: var(--bg);
   color: var(--text);
+}
+
+main {
+  padding-bottom: 1.5rem;
 }
 
 .app-shell {
@@ -39,27 +45,30 @@ header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 1.25rem;
   padding: 1rem 1.25rem;
   background: var(--panel);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  border-bottom: 1px solid var(--outline);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
   position: sticky;
   top: 0;
   z-index: 20;
+  flex-wrap: wrap;
 }
 
 .dashboard-grid {
   display: grid;
   gap: 1rem;
   padding: 1rem;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
 }
 
 .card {
   background: var(--panel);
-  border-radius: 12px;
+  border-radius: 14px;
   padding: 1rem;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+  border: 1px solid var(--outline);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -79,12 +88,17 @@ header {
   flex-wrap: wrap;
 }
 
+.touch-row {
+  gap: 0.75rem;
+}
+
 .badge {
   padding: 0.35rem 0.75rem;
   border-radius: 999px;
   font-weight: 600;
   font-size: 0.85rem;
   color: var(--panel);
+  letter-spacing: 0.01em;
 }
 
 .badge.success {
@@ -155,21 +169,24 @@ select,
 textarea {
   font: inherit;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 0.5rem 0.75rem;
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--outline);
+  padding: 0.65rem 0.9rem;
+  background: rgba(255, 255, 255, 0.05);
   color: var(--text);
 }
 
 button {
   cursor: pointer;
-  transition: transform 120ms ease, background 120ms ease;
+  transition: transform 120ms ease, background 120ms ease, box-shadow 160ms ease;
+  min-height: 44px;
+  min-width: 44px;
 }
 
 button.primary {
   background: linear-gradient(120deg, var(--accent), var(--accent-strong));
   color: var(--panel);
   border: none;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.25);
 }
 
 button:disabled {
@@ -243,11 +260,19 @@ button:focus-visible {
 
 .touch-target {
   min-height: 44px;
+  min-width: 48px;
+  padding-left: 1rem;
+  padding-right: 1rem;
 }
 
 @media (max-width: 768px) {
   header {
     flex-direction: column;
     align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   }
 }

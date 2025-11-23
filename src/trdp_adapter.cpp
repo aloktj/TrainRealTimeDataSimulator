@@ -320,7 +320,8 @@ namespace trdp_sim::trdp
                     m_ctx.diagManager->log(diag::Severity::WARN, "PD", "Dropping PD due to simulated bus failure");
                 }
                 pd.stats.busFailureDrops++;
-                return -1;
+                recordSendLog(pd.cfg ? pd.cfg->comId : 0, static_cast<uint32_t>(channelIdx), true);
+                return kPdSoftDropCode;
             }
             if (!ch.handle)
             {
@@ -342,22 +343,42 @@ namespace trdp_sim::trdp
                                            buildPcapEventJson(pd.cfg->comId, payload.size(), "tx"));
                 return -static_cast<int>(err);
             }
+            recordSendLog(pd.cfg ? pd.cfg->comId : 0, static_cast<uint32_t>(channelIdx), false);
             return 0;
         };
 
         if (sendRedundant)
         {
+            bool   sentSuccessfully{false};
+            int    dropCode{0};
             for (std::size_t i = 0; i < pd.pubChannels.size(); ++i)
             {
                 auto& ch = pd.pubChannels[i];
                 int   rc = sendOnce(ch, i);
-                if (rc != 0)
+                if (rc == 0)
+                {
+                    sentSuccessfully = true;
+                }
+                else if (rc == kPdSoftDropCode)
+                {
+                    dropCode = rc;
+                }
+                else
+                {
                     return rc;
+                }
             }
+            if (sentSuccessfully)
+                return 0;
+            if (dropCode)
+                return dropCode;
+            return -1;
         }
         else
         {
             int rc = sendOnce(pd.pubChannels.at(idx), idx);
+            if (rc == kPdSoftDropCode)
+                return rc;
             if (rc != 0)
                 return rc;
             pd.activeChannel = static_cast<uint32_t>((idx + 1) % pd.pubChannels.size());
@@ -569,6 +590,12 @@ namespace trdp_sim::trdp
         return m_lastMdReplyPayload;
     }
 
+    std::vector<PdSendLogEntry> TrdpAdapter::getPdSendLog() const
+    {
+        std::lock_guard<std::mutex> lk(m_errMtx);
+        return m_pdSendLog;
+    }
+
     std::vector<uint32_t> TrdpAdapter::getRequestedSessions() const
     {
         std::lock_guard<std::mutex> lk(m_errMtx);
@@ -586,6 +613,14 @@ namespace trdp_sim::trdp
         std::lock_guard<std::mutex> lk(m_errMtx);
         m_errorCounters.*member += 1;
         m_lastErrorCode = code;
+    }
+
+    void TrdpAdapter::recordSendLog(uint32_t comId, uint32_t channel, bool dropped) const
+    {
+        std::lock_guard<std::mutex> lk(m_errMtx);
+        if (m_pdSendLog.size() > 63)
+            m_pdSendLog.erase(m_pdSendLog.begin());
+        m_pdSendLog.push_back(PdSendLogEntry{comId, channel, dropped});
     }
 
 } // namespace trdp_sim::trdp

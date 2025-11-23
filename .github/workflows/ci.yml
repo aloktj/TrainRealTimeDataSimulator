@@ -79,3 +79,40 @@ jobs:
             build/Testing
             build/Testing/Temporary/LastTest.log
           if-no-files-found: ignore
+
+  cross-build-arm64:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install cross toolchain and build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            ninja-build \
+            cmake \
+            g++-aarch64-linux-gnu \
+            libssl-dev \
+            libtinyxml2-dev \
+            nlohmann-json3-dev \
+            libdrogon-dev
+
+      - name: Configure cross build (arm64)
+        run: |
+          cmake -S . -B build-arm64 -GNinja \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/arm64-gnu.cmake \
+            -DTRDP_USE_STUBS=ON \
+            -DTRDP_ENABLE_TESTS=OFF \
+            -DTRDP_PI_OPTIMIZED=ON
+
+      - name: Build arm64 binaries
+        run: cmake --build build-arm64 --config Release
+
+      - name: Upload cross-build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: trdp-simulator-arm64
+          path: build-arm64/trdp-simulator
+          if-no-files-found: warn

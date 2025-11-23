@@ -74,3 +74,35 @@ TEST(ConfigManager, DetectsInvalidMdTimeouts)
         EXPECT_NE(msg.find("replyTimeoutUs"), std::string::npos);
     }
 }
+
+TEST(ConfigManager, AppliesValidityDefaults)
+{
+    const std::string tmpPath = std::filesystem::temp_directory_path() / "validity_defaults.xml";
+    std::ofstream     ofs(tmpPath);
+    ofs << "<Device hostName=\"vd\">"
+           "<DataSets><DataSet name=\"ds\" id=\"1\"><Element name=\"e1\" type=\"UINT8\"/></DataSet></DataSets>"
+           "<Interfaces><Interface networkId=\"1\" name=\"if1\">"
+           "<PdCom port=\"17224\" qos=\"1\" ttl=\"1\" timeoutUs=\"1000\"/>"
+           "<MdCom udpPort=\"17225\" tcpPort=\"17226\"/>"
+           "<Telegrams>"
+           "<Telegram name=\"PdA\" comId=\"100\" dataSetId=\"1\" comParameterId=\"1\">"
+           "<PdParameters cycleUs=\"2000\" marshall=\"true\" timeoutUs=\"4000\"/>"
+           "<Destinations><Destination id=\"1\" uri=\"239.0.0.1\"/></Destinations>"
+           "</Telegram>"
+           "</Telegrams>"
+           "</Interface></Interfaces>"
+           "</Device>";
+    ofs.close();
+
+    config::ConfigManager mgr;
+    auto                  cfg = mgr.loadDeviceConfigFromXml(tmpPath);
+    mgr.validateDeviceConfig(cfg);
+
+    ASSERT_EQ(cfg.interfaces.size(), 1u);
+    const auto& iface = cfg.interfaces.front();
+    EXPECT_EQ(iface.pdCom.validityBehavior, config::PdComParameter::ValidityBehavior::ZERO);
+    ASSERT_FALSE(iface.telegrams.empty());
+    const auto& tel = iface.telegrams.front();
+    ASSERT_TRUE(tel.pdParam.has_value());
+    EXPECT_EQ(tel.pdParam->validityBehavior, config::PdComParameter::ValidityBehavior::KEEP);
+}

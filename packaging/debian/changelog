@@ -1,0 +1,5 @@
+trdp-simulator (0.1.0) unstable; urgency=medium
+
+  * Initial Debian metadata for simulator, service unit, and defaults.
+
+ -- TRDP Simulator Team <maintainers@trainrealtimedatasimulator.local>  Mon, 01 Jan 2024 00:00:00 +0000

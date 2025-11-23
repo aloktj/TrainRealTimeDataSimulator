@@ -149,23 +149,84 @@ namespace trdp_sim::trdp
         return 0;
     }
 
-    int TrdpAdapter::sendPdData(const engine::pd::PdTelegramRuntime& pd, const std::vector<uint8_t>& payload)
+    int TrdpAdapter::sendPdData(engine::pd::PdTelegramRuntime& pd, const std::vector<uint8_t>& payload)
     {
-        const int rc = m_pdSendResult.value_or(0);
-        if (rc != 0)
+        const int rcOverride = m_pdSendResult.value_or(0);
+        if (rcOverride != 0)
         {
-            recordError(static_cast<uint32_t>(-rc), &TrdpErrorCounters::pdSendErrors);
-            return rc;
+            recordError(static_cast<uint32_t>(-rcOverride), &TrdpErrorCounters::pdSendErrors);
+            return rcOverride;
         }
-        std::lock_guard<std::mutex> lk(m_errMtx);
-        m_lastPdPayload = payload;
-        (void) pd;
+
+        trdp_sim::SimulationControls::RedundancySimulation redundancy{};
+        {
+            std::lock_guard<std::mutex> lk(m_ctx.simulation.mtx);
+            redundancy = m_ctx.simulation.redundancy;
+            if (redundancy.forceSwitch && !pd.pubChannels.empty())
+            {
+                pd.activeChannel = static_cast<uint32_t>((pd.activeChannel + 1) % pd.pubChannels.size());
+                pd.stats.redundancySwitches++;
+            }
+        }
+
+        auto sendOnce = [&](std::size_t channelIdx) -> int {
+            if (redundancy.busFailure && redundancy.failedChannel == channelIdx)
+            {
+                pd.stats.busFailureDrops++;
+                recordSendLog(pd.cfg ? pd.cfg->comId : 0, static_cast<uint32_t>(channelIdx), true);
+                return kPdSoftDropCode;
+            }
+            recordSendLog(pd.cfg ? pd.cfg->comId : 0, static_cast<uint32_t>(channelIdx), false);
+            return 0;
+        };
+
+        bool sentSuccessfully{false};
+        int  dropCode{0};
+        if (pd.cfg && pd.cfg->pdParam && pd.cfg->pdParam->redundant > 0)
+        {
+            for (std::size_t i = 0; i < pd.pubChannels.size(); ++i)
+            {
+                const int rc = sendOnce(i);
+                if (rc == 0)
+                {
+                    sentSuccessfully = true;
+                }
+                else if (rc == kPdSoftDropCode)
+                {
+                    dropCode = rc;
+                }
+                else
+                {
+                    return rc;
+                }
+            }
+        }
+        else
+        {
+            const std::size_t idx = pd.activeChannel % (pd.pubChannels.empty() ? 1 : pd.pubChannels.size());
+            const int         rc  = sendOnce(idx);
+            if (rc == 0)
+                pd.activeChannel = static_cast<uint32_t>((idx + 1) % (pd.pubChannels.empty() ? 1 : pd.pubChannels.size()));
+            else if (rc == kPdSoftDropCode)
+                dropCode = rc;
+            else
+                return rc;
+        }
+
+        {
+            std::lock_guard<std::mutex> lk(m_errMtx);
+            m_lastPdPayload = payload;
+        }
         if (m_ctx.diagManager)
         {
             m_ctx.diagManager->writePacketToPcap(payload.data(), payload.size(), true);
             m_ctx.diagManager->log(diag::Severity::DEBUG, "PD", "PD packet transmitted",
                                    buildPcapEventJson(pd.cfg ? pd.cfg->comId : 0, payload.size(), "tx"));
         }
+        if (sentSuccessfully)
+            return 0;
+        if (dropCode)
+            return dropCode;
         return 0;
     }
 
@@ -254,11 +315,25 @@ namespace trdp_sim::trdp
         return m_lastErrorCode;
     }
 
+    std::vector<PdSendLogEntry> TrdpAdapter::getPdSendLog() const
+    {
+        std::lock_guard<std::mutex> lk(m_errMtx);
+        return m_pdSendLog;
+    }
+
     void TrdpAdapter::recordError(uint32_t code, uint64_t TrdpErrorCounters::* member)
     {
         std::lock_guard<std::mutex> lk(m_errMtx);
         m_errorCounters.*member += 1;
         m_lastErrorCode = code;
+    }
+
+    void TrdpAdapter::recordSendLog(uint32_t comId, uint32_t channel, bool dropped) const
+    {
+        std::lock_guard<std::mutex> lk(m_errMtx);
+        if (m_pdSendLog.size() > 63)
+            m_pdSendLog.erase(m_pdSendLog.begin());
+        m_pdSendLog.push_back(PdSendLogEntry{comId, channel, dropped});
     }
 
     std::vector<trdp_sim::EngineContext::MulticastGroupState> TrdpAdapter::getMulticastState() const
