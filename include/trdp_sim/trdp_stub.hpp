@@ -5,7 +5,11 @@
 using TRDP_APP_SESSION_T = void*;
 using TRDP_PUB_T         = void*;
 using TRDP_SUB_T         = void*;
-using TRDP_LR_T          = uint32_t;
+
+struct TRDP_UUID_T
+{
+    uint8_t value[16]{};
+};
 
 struct TRDP_PD_INFO_T
 {
@@ -14,7 +18,7 @@ struct TRDP_PD_INFO_T
 
 struct TRDP_MD_INFO_T
 {
-    uint32_t          sessionId{0};
+    TRDP_UUID_T       sessionId{};
     uint32_t          comId{0};
     uint32_t          resultCode{0};
     uint32_t          msgType{0};
@@ -57,6 +61,12 @@ struct TRDP_PROCESS_CONFIG_T
     char* szHostname{nullptr};
 };
 
+using TRDP_URI_USER_T = TRDP_UUID_T; // Placeholder type for stub
+
+struct TRDP_SEND_PARAM_T
+{
+};
+
 #ifndef UINT8
 using UINT8  = uint8_t;
 using UINT32 = uint32_t;
@@ -97,15 +107,29 @@ inline TRDP_ERR_T tlp_put(TRDP_APP_SESSION_T, TRDP_PUB_T, uint8_t*, uint32_t)
     return TRDP_NO_ERR;
 }
 
-inline TRDP_ERR_T tlm_request(TRDP_APP_SESSION_T, TRDP_LR_T* handle, void*, void*, void*, uint32_t, uint32_t, uint32_t,
-                              uint32_t, uint8_t*, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)
+inline TRDP_ERR_T tlm_request(TRDP_APP_SESSION_T, void* refCon, void* cb, TRDP_UUID_T* sessionId, uint32_t comId,
+                              uint32_t etbTopo, uint32_t opTrnTopo, uint32_t srcIp, uint32_t destIp, uint32_t flags,
+                              uint32_t numReplies, uint32_t replyTimeout, const TRDP_SEND_PARAM_T*, uint8_t* payload,
+                              uint32_t size, TRDP_URI_USER_T, TRDP_URI_USER_T)
 {
-    if (handle)
-        *handle = 1;
+    (void) refCon;
+    (void) cb;
+    (void) comId;
+    (void) etbTopo;
+    (void) opTrnTopo;
+    (void) srcIp;
+    (void) destIp;
+    (void) flags;
+    (void) numReplies;
+    (void) replyTimeout;
+    (void) payload;
+    (void) size;
+    if (sessionId)
+        sessionId->value[0] = 1;
     return TRDP_NO_ERR;
 }
-inline TRDP_ERR_T tlm_reply(TRDP_APP_SESSION_T, TRDP_LR_T, void*, void*, uint32_t, uint32_t, uint8_t*, uint32_t,
-                            uint32_t, uint32_t, uint32_t, uint32_t)
+inline TRDP_ERR_T tlm_reply(TRDP_APP_SESSION_T, const TRDP_UUID_T*, uint32_t, uint32_t, const TRDP_SEND_PARAM_T*,
+                            uint8_t*, uint32_t, const char*)
 {
     return TRDP_NO_ERR;
 }

@@ -21,14 +21,14 @@ namespace trdp_sim::util
             case data::ElementType::INT32:
             case data::ElementType::UINT32:
             case data::ElementType::REAL32:
-            case data::ElementType::TIMEDATE32:
+            case data::ElementType::TIME_DATE32:
                 return 4;
             case data::ElementType::INT64:
             case data::ElementType::UINT64:
             case data::ElementType::REAL64:
-            case data::ElementType::TIMEDATE64:
+            case data::ElementType::TIME_DATE64:
                 return 8;
-            case data::ElementType::TIMEDATE48:
+            case data::ElementType::TIME_DATE48:
                 return 6;
             case data::ElementType::NESTED_DATASET:
                 return 0; // Determined dynamically

@@ -91,9 +91,9 @@ namespace config
                 {"UINT64", data::ElementType::UINT64},
                 {"REAL32", data::ElementType::REAL32},
                 {"REAL64", data::ElementType::REAL64},
-                {"TIMEDATE32", data::ElementType::TIMEDATE32},
-                {"TIMEDATE48", data::ElementType::TIMEDATE48},
-                {"TIMEDATE64", data::ElementType::TIMEDATE64},
+                {"TIMEDATE32", data::ElementType::TIME_DATE32},
+                {"TIMEDATE48", data::ElementType::TIME_DATE48},
+                {"TIMEDATE64", data::ElementType::TIME_DATE64},
                 {"NESTED_DATASET", data::ElementType::NESTED_DATASET},
             };
 
