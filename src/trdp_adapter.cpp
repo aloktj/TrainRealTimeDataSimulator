@@ -16,6 +16,14 @@
 #include <type_traits>
 #include <vector>
 
+#ifndef TRDP_TO_ZERO
+#define TRDP_TO_ZERO static_cast<TRDP_TO_BEHAVIOR_T>(0)
+#endif
+
+#ifndef TRDP_TO_KEEP_LAST_VALUE
+#define TRDP_TO_KEEP_LAST_VALUE static_cast<TRDP_TO_BEHAVIOR_T>(1)
+#endif
+
 #if __has_include(<trdp_if_light.h>)
 #include <trdp_if_light.h>
 #elif __has_include(<trdp_if.h>)
@@ -110,16 +118,6 @@ namespace trdp_sim::trdp
         struct HasHostNameField<T, std::void_t<decltype(T::hostName)>> : std::true_type
         {
         };
-
-        template <typename T, typename = void>
-        struct HasCamelTimeFields : std::false_type
-        {
-        };
-
-        template <typename T>
-        struct HasCamelTimeFields<T, std::void_t<decltype(T::tvSec), decltype(T::tvUsec)>> : std::true_type
-        {
-        };
     } // namespace
 
     TrdpAdapter::TrdpAdapter(EngineContext& ctx) : m_ctx(ctx) {}
@@ -133,20 +131,12 @@ namespace trdp_sim::trdp
         TRDP_PROCESS_CONFIG_T processCfg{};
         if constexpr (HasHostNameField<TRDP_PROCESS_CONFIG_T>::value)
         {
-            processCfg.hostName = const_cast<char*>(m_ctx.deviceConfig.hostName.c_str());
-        }
-        else
-        {
-            processCfg.szHostname = const_cast<char*>(m_ctx.deviceConfig.hostName.c_str());
+            std::strncpy(processCfg.hostName, m_ctx.deviceConfig.hostName.c_str(), sizeof(processCfg.hostName) - 1U);
+            processCfg.hostName[sizeof(processCfg.hostName) - 1U] = '\0';
         }
 
         TRDP_ERR_T err{TRDP_NO_ERR};
-        if constexpr (std::is_invocable_r_v<TRDP_ERR_T, decltype(&tlc_init), TRDP_APP_SESSION_T*, TRDP_MEM_CONFIG_T*, void*,
-                                             TRDP_PD_CONFIG_T*, TRDP_MD_CONFIG_T*, TRDP_PROCESS_CONFIG_T*>)
-        {
-            err = tlc_init(&m_ctx.trdpSession, &memCfg, nullptr, &pdCfg, &mdCfg, &processCfg);
-        }
-        else if constexpr (std::is_invocable_r_v<TRDP_ERR_T, decltype(&tlc_init), TRDP_PRINT_DBG_T, void*,
+        if constexpr (std::is_invocable_r_v<TRDP_ERR_T, decltype(&tlc_init), TRDP_PRINT_DBG_T, void*,
                                                  const TRDP_MEM_CONFIG_T*>)
         {
             err = tlc_init(nullptr, nullptr, &memCfg);
@@ -167,6 +157,14 @@ namespace trdp_sim::trdp
             return false;
         }
 
+        err = tlc_openSession(&m_ctx.trdpSession, 0, 0, nullptr, &pdCfg, &mdCfg, &processCfg);
+        if (err != TRDP_NO_ERR)
+        {
+            recordError(static_cast<uint32_t>(err), &TrdpErrorCounters::initErrors);
+            std::cerr << "TRDP tlc_openSession failed: " << err << std::endl;
+            return false;
+        }
+
         return m_ctx.trdpSession != nullptr;
     }
 
@@ -174,14 +172,8 @@ namespace trdp_sim::trdp
     {
         if (m_ctx.trdpSession)
         {
-            if constexpr (std::is_invocable_v<decltype(&tlc_terminate), TRDP_APP_SESSION_T>)
-            {
-                tlc_terminate(m_ctx.trdpSession);
-            }
-            else
-            {
-                tlc_terminate();
-            }
+            tlc_closeSession(m_ctx.trdpSession);
+            tlc_terminate();
             m_ctx.trdpSession = nullptr;
         }
     }
@@ -274,13 +266,6 @@ namespace trdp_sim::trdp
         if (!m_ctx.trdpSession || !pd.cfg || !pd.pdComCfg)
             return -1;
 
-        TRDP_PD_CONFIG_T pdCfg{};
-        pdCfg.timeout = pd.cfg->pdParam ? pd.cfg->pdParam->timeoutUs : pd.pdComCfg->timeoutUs;
-        pdCfg.toBehavior =
-            (pd.cfg->pdParam && pd.cfg->pdParam->validityBehavior == config::PdComParameter::ValidityBehavior::ZERO)
-                ? TRDP_TO_ZERO
-                : TRDP_TO_KEEP_LAST_VALUE;
-
         TRDP_IP_ADDR_T srcIp = toIp(pd.ifaceCfg->hostIp);
 
         if (pd.pubChannels.empty())
@@ -295,8 +280,8 @@ namespace trdp_sim::trdp
             if (ch.handle)
                 continue;
 
-            TRDP_ERR_T err = tlp_publish(m_ctx.trdpSession, &ch.handle, srcIp, ch.destIp, pd.cfg->comId, 0, 0, &pdCfg,
-                                         nullptr, 0);
+            TRDP_ERR_T err = tlp_publish(m_ctx.trdpSession, &ch.handle, this, &pdCallback, 0, pd.cfg->comId, 0, 0,
+                                         srcIp, ch.destIp, 0, 0, 0, nullptr, nullptr, 0);
 
             if (err != TRDP_NO_ERR)
             {
@@ -316,18 +301,18 @@ namespace trdp_sim::trdp
         if (!m_ctx.trdpSession || !pd.cfg || !pd.pdComCfg)
             return -1;
 
+        TRDP_IP_ADDR_T srcIp  = 0; // wildcard
+        TRDP_IP_ADDR_T destIp = toIp(pd.ifaceCfg->hostIp);
+
         TRDP_PD_CONFIG_T pdCfg{};
-        pdCfg.timeout = pd.cfg->pdParam ? pd.cfg->pdParam->timeoutUs : pd.pdComCfg->timeoutUs;
         pdCfg.toBehavior =
             (pd.cfg->pdParam && pd.cfg->pdParam->validityBehavior == config::PdComParameter::ValidityBehavior::ZERO)
                 ? TRDP_TO_ZERO
                 : TRDP_TO_KEEP_LAST_VALUE;
+        pdCfg.timeout = pd.cfg->pdParam ? pd.cfg->pdParam->timeoutUs : pd.pdComCfg->timeoutUs;
 
-        TRDP_IP_ADDR_T srcIp  = 0; // wildcard
-        TRDP_IP_ADDR_T destIp = toIp(pd.ifaceCfg->hostIp);
-
-        TRDP_ERR_T err = tlp_subscribe(m_ctx.trdpSession, &pd.subHandle, srcIp, destIp, pd.cfg->comId, 0, 0, &pdCfg,
-                                       &pdCallback, this);
+        TRDP_ERR_T err = tlp_subscribe(m_ctx.trdpSession, &pd.subHandle, this, &pdCallback, 0, pd.cfg->comId, 0, 0,
+                                       srcIp, 0, destIp, 0, nullptr, pdCfg.timeout, pdCfg.toBehavior);
 
         if (err != TRDP_NO_ERR)
         {
@@ -576,7 +561,7 @@ namespace trdp_sim::trdp
 
         TRDP_UUID_T trdpSessionId{};
         if (info)
-            trdpSessionId = info->sessionId;
+            std::memcpy(&trdpSessionId, &info->sessionId, sizeof(TRDP_UUID_T));
 
         engine::md::MdSessionRuntime* sess = nullptr;
         for (auto& [_, candidate] : m_ctx.mdSessions)
@@ -613,16 +598,8 @@ namespace trdp_sim::trdp
         }
 
         struct timeval tv;
-        if constexpr (HasCamelTimeFields<TRDP_TIME_T>::value)
-        {
-            tv.tv_sec  = interval.tvSec;
-            tv.tv_usec = interval.tvUsec;
-        }
-        else
-        {
-            tv.tv_sec  = interval.tv_sec;
-            tv.tv_usec = interval.tv_usec;
-        }
+        tv.tv_sec  = interval.tv_sec;
+        tv.tv_usec = interval.tv_usec;
 
         int rv = select(noOfDesc + 1, &rfds, nullptr, nullptr, &tv);
         if (rv < 0)
