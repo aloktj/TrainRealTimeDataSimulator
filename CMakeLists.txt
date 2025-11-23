@@ -88,6 +88,7 @@ set(TRDP_SIM_CORE_SOURCES
     ${TRDP_SIM_SRC_DIR}/xml_loader.cpp
     ${TRDP_SIM_SRC_DIR}/data_types.cpp
     ${TRDP_SIM_SRC_DIR}/data_marshalling.cpp
+    ${TRDP_SIM_SRC_DIR}/performance_harness.cpp
     ${TRDP_SIM_SRC_DIR}/pd_engine.cpp
     ${TRDP_SIM_SRC_DIR}/md_engine.cpp
     ${TRDP_SIM_SRC_DIR}/diagnostic_manager.cpp

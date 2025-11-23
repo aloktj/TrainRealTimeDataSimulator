@@ -91,6 +91,17 @@ namespace trdp_sim::util
         if (!inst.def)
             return;
 
+        if (!data || len == 0)
+        {
+            for (std::size_t idx = 0; idx < inst.def->elements.size() && idx < inst.values.size(); ++idx)
+            {
+                auto& cell = inst.values[idx];
+                cell.raw.assign(elementSize(inst.def->elements[idx], ctx), 0);
+                cell.defined = false;
+            }
+            return;
+        }
+
         std::size_t offset = 0;
         for (std::size_t idx = 0; idx < inst.def->elements.size() && idx < inst.values.size(); ++idx)
         {
