@@ -59,11 +59,29 @@ namespace trdp_sim::trdp
             if (ip.empty())
                 return 0;
 
+            std::string ipOnly = ip;
+
+            // Strip URI scheme if present (e.g. "udp://239.1.1.1:17224").
+            if (const auto pos = ipOnly.find("://"); pos != std::string::npos)
+            {
+                ipOnly = ipOnly.substr(pos + 3);
+            }
+
+            // Discard any trailing path or port information.
+            if (const auto slash = ipOnly.find('/'); slash != std::string::npos)
+            {
+                ipOnly = ipOnly.substr(0, slash);
+            }
+            if (const auto colon = ipOnly.find(':'); colon != std::string::npos)
+            {
+                ipOnly = ipOnly.substr(0, colon);
+            }
+
             struct in_addr addr
             {
             };
 
-            if (inet_aton(ip.c_str(), &addr) == 0)
+            if (inet_aton(ipOnly.c_str(), &addr) == 0)
                 return 0;
 
             /* TRDP expects host-order IP integers. */
