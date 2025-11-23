@@ -92,6 +92,13 @@ int main(int argc, char* argv[])
         return def;
     };
 
+    const auto getEnv = [](const std::string& key) -> std::optional<std::string> {
+        const char* val = std::getenv(key.c_str());
+        if (val && *val)
+            return std::string(val);
+        return std::nullopt;
+    };
+
     const auto parseSeverity = [](const std::string& level) {
         if (level.empty())
             return diag::Severity::DEBUG;
@@ -193,17 +200,39 @@ int main(int argc, char* argv[])
     if (pcapTxOverride)
         pcapCfg.captureTx = *pcapTxOverride;
 
+    const auto parseBoolEnv = [](const std::optional<std::string>& val, bool defaultValue) {
+        if (!val)
+            return defaultValue;
+        auto lowered = *val;
+        std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        return lowered != "0" && lowered != "false" && lowered != "no" && lowered != "off";
+    };
+
     diag::LogConfig logCfg{};
-    logCfg.minimumSeverity = parseSeverity(getEnvOrDefault("TRDP_LOG_LEVEL", "DEBUG"));
+    logCfg.minimumSeverity = diag::Severity::DEBUG;
+
+    if (ctx.deviceConfig.debug)
+    {
+        auto dbg               = *ctx.deviceConfig.debug;
+        logCfg.minimumSeverity = parseSeverity(std::string(1, dbg.level));
+        if (!dbg.fileName.empty())
+        {
+            logCfg.filePath         = dbg.fileName;
+            logCfg.maxFileSizeBytes = dbg.fileSize;
+        }
+    }
+
+    if (auto envLevel = getEnv("TRDP_LOG_LEVEL"))
+        logCfg.minimumSeverity = parseSeverity(*envLevel);
+    logCfg.logToStdout = parseBoolEnv(getEnv("TRDP_LOG_STDOUT"), true);
 
     diag::DiagnosticManager diagMgr(ctx, pdEngine, mdEngine, adapter, logCfg, pcapCfg);
     ctx.diagManager = &diagMgr;
     diagMgr.start();
 
     auto effectiveLevel = logCfg.minimumSeverity;
-    if (ctx.deviceConfig.debug)
-        effectiveLevel = parseSeverity(std::string(1, ctx.deviceConfig.debug->level));
-
     diagMgr.log(diag::Severity::INFO, "Startup",
                 std::string("Initialized with config ") + ctx.configPath +
                     ", log level " + (effectiveLevel == diag::Severity::DEBUG
@@ -361,19 +390,6 @@ int main(int argc, char* argv[])
     app().setLogLevel(trantor::Logger::kTrace);
     diagMgr.log(diag::Severity::INFO, "HTTP",
                 std::string("Listening on ") + bindHost + ":" + std::to_string(bindPort));
-
-    // Friendly root handler
-    app().registerHandler(
-        "/",
-        [&jsonResponse, &checkThrottle](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
-        {
-            if (!checkThrottle(req, cb))
-                return;
-            cb(jsonResponse({{"message", "TRDP simulator is running"},
-                             {"docs", "See /api/diag/metrics or /api/diag/events for runtime details."}},
-                            k200OK));
-        },
-        {Get, Head});
 
     // Friendly root handler
     app().registerHandler(
