@@ -26,7 +26,7 @@ A lightweight TRDP (Train Real-time Data Protocol) simulator that exercises PD a
 ./scripts/run-local.sh
 ```
 
-This configures CMake with `TRDP_USE_STUBS=ON`, builds the simulator, and runs it with the default configuration at `config/trdp.xml` on port `8848`.
+This configures CMake with `TRDP_USE_STUBS=ON`, builds the simulator, and runs it with the default configuration at `config/trdp.xml` on port `8000`.
 
 ## Building against a real TRDP library
 
@@ -80,7 +80,7 @@ Use the helper to build (if necessary) and launch Drogon:
 ./scripts/run-local.sh
 ```
 
-- The simulator listens on `0.0.0.0:8848` and serves a JSON API.
+- The simulator listens on `0.0.0.0:8000` and serves a JSON API.
 - Pass `--config path/to/file.xml` to temporarily copy another device XML onto `config/trdp.xml` before launching.
 - Use `--use-trdp --trdp-lib ... --trdp-include ...` to run against a proprietary TRDP library instead of the stub.
 

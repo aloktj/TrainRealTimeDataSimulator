@@ -49,6 +49,6 @@ LABEL org.opencontainers.image.title="TRDP Simulator" \
       org.opencontainers.image.version="0.1.0" \
       org.opencontainers.image.source="https://example.com/trdp-simulator"
 
-EXPOSE 8848
+EXPOSE 8000
 ENTRYPOINT ["/usr/bin/trdp-simulator"]
 CMD ["--config", "/etc/trdp-simulator/trdp.xml"]

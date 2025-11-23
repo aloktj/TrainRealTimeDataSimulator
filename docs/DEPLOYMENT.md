@@ -38,7 +38,7 @@ This guide describes how to build deployable artifacts (.deb, Docker image, syst
   ```
 - Run the image (bind a config file and expose the API):
   ```bash
-  docker run --rm -p 8848:8848 \
+  docker run --rm -p 8000:8000 \
     -v $(pwd)/config/trdp.xml:/etc/trdp-simulator/trdp.xml:ro \
     trdp-simulator:latest
   ```
@@ -88,6 +88,6 @@ This guide describes how to build deployable artifacts (.deb, Docker image, syst
 - Logging: use `<Debug>` in XML or pass Drogon logging flags (e.g., `--logtostderr`).
 
 ## Verification checks
-- `systemctl status trdp-simulator` shows the service as active and listening on `:8848`.
-- `curl http://localhost:8848/api/diag/metrics` returns runtime metrics.
+- `systemctl status trdp-simulator` shows the service as active and listening on `:8000`.
+- `curl http://localhost:8000/api/diag/metrics` returns runtime metrics.
 - `docker logs <container>` shows PD/MD engine start-up logs when running in a container.

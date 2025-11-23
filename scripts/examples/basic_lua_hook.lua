@@ -1,7 +1,7 @@
 -- Example Lua hook for scripting_hooks.py
 -- Expects SIM_BASE_URL env var from the runner. Emits JSON on stdout.
 
-local base = os.getenv("SIM_BASE_URL") or "http://127.0.0.1:8848"
+local base = os.getenv("SIM_BASE_URL") or "http://127.0.0.1:8000"
 
 local function fetch(path)
     local handle = io.popen(string.format('curl -s %s%s', base, path))
