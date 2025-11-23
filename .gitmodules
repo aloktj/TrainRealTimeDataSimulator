@@ -1,3 +1,9 @@
 [submodule "external/TCNopen"]
 	path = external/TCNopen
 	url = https://github.com/aloktj/TCNopen.git
+[submodule "external/tinyxml2"]
+	path = external/tinyxml2
+	url = https://github.com/aloktj/tinyxml2.git
+[submodule "external/drogon"]
+	path = external/drogon
+	url = https://github.com/aloktj/drogon.git
