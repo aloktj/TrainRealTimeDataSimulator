@@ -517,10 +517,6 @@ namespace trdp_sim::trdp
             m_lastMdReplyPayload = payload;
         }
 
-        TRDP_IP_ADDR_T destIp = 0;
-        if (!session.telegram->destinations.empty())
-            destIp = toIp(session.telegram->destinations.front().uri);
-
         TRDP_ERR_T err = tlm_reply(
             m_ctx.trdpSession, &session.trdpSessionId, session.telegram->comId, 0, nullptr,
             const_cast<UINT8*>(payload.empty() ? nullptr : payload.data()), static_cast<UINT32>(payload.size()), nullptr);
