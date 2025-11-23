@@ -9,6 +9,7 @@
 #include <memory>
 #include <optional>
 #include <random>
+#include <type_traits>
 #include <vector>
 
 namespace engine::md
@@ -21,6 +22,11 @@ namespace engine::md
         bool uuidEqual(const TRDP_UUID_T& a, const TRDP_UUID_T& b)
         {
             return std::memcmp(&a, &b, sizeof(TRDP_UUID_T)) == 0;
+        }
+
+        void copyUuid(TRDP_UUID_T& dst, const TRDP_UUID_T& src)
+        {
+            std::memcpy(&dst, &src, sizeof(TRDP_UUID_T));
         }
 
         constexpr auto kMinTcpDispatchInterval = std::chrono::milliseconds(50);
@@ -149,7 +155,6 @@ namespace engine::md
         if (!opt)
             return;
         MdSessionRuntime*           sess = *opt;
-        ctx.sessionId                      = sess->sessionId;
         std::lock_guard<std::mutex> lk(sess->mtx);
         if (sess->role != MdRole::REQUESTER)
             return;
@@ -160,10 +165,25 @@ namespace engine::md
 
     namespace
     {
+        template <typename T, typename = void>
+        struct HasProtocolMember : std::false_type
+        {
+        };
+
+        template <typename T>
+        struct HasProtocolMember<T, std::void_t<decltype(std::declval<const T>().protocol)>> : std::true_type
+        {
+        };
+
         engine::md::MdProtocol toMdProto(const TRDP_MD_INFO_T* info)
         {
-            if (info && info->protocol == TRDP_MD_TCP)
-                return engine::md::MdProtocol::TCP;
+    #if defined(TRDP_MD_TCP)
+            if constexpr (HasProtocolMember<TRDP_MD_INFO_T>::value)
+            {
+                if (info && info->protocol == TRDP_MD_TCP)
+                    return engine::md::MdProtocol::TCP;
+            }
+    #endif
             return engine::md::MdProtocol::UDP;
         }
     } // namespace
@@ -174,7 +194,7 @@ namespace engine::md
         MdIndicationContext ctx;
         if (info)
         {
-            ctx.trdpSessionId = info->sessionId;
+            copyUuid(ctx.trdpSessionId, info->sessionId);
             ctx.comId         = info->comId;
             ctx.proto         = toMdProto(info);
             ctx.resultCode = info->resultCode;
@@ -226,7 +246,7 @@ namespace engine::md
             sess->responseData  = dsIt->second.get();
             sess->proto         = ctx.proto;
             sess->state         = MdSessionState::IDLE;
-            sess->trdpSessionId = ctx.trdpSessionId;
+            copyUuid(sess->trdpSessionId, ctx.trdpSessionId);
 
             const auto internalId = sess->sessionId;
             m_ctx.mdSessions[internalId] = std::move(sess);
