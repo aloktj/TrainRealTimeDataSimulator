@@ -51,14 +51,23 @@ namespace trdp_sim::trdp
         {
             if (!maybeIp || maybeIp->empty())
                 return 0;
-            return inet_addr(maybeIp->c_str());
+            return toIp(*maybeIp);
         }
 
         TRDP_IP_ADDR_T toIp(const std::string& ip)
         {
             if (ip.empty())
                 return 0;
-            return inet_addr(ip.c_str());
+
+            struct in_addr addr
+            {
+            };
+
+            if (inet_aton(ip.c_str(), &addr) == 0)
+                return 0;
+
+            /* TRDP expects host-order IP integers. */
+            return static_cast<TRDP_IP_ADDR_T>(ntohl(addr.s_addr));
         }
 
         void pdCallback(void* refCon, TRDP_APP_SESSION_T /*session*/, const TRDP_PD_INFO_T* info, UINT8* data,
