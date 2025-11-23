@@ -25,6 +25,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include <trantor/utils/Logger.h>
+
 using namespace drogon;
 
 int main(int argc, char* argv[])
@@ -82,6 +84,35 @@ int main(int argc, char* argv[])
             pcapRxOverride = true;
         }
     }
+
+    const auto getEnvOrDefault = [](const std::string& key, const std::string& def) {
+        const char* val = std::getenv(key.c_str());
+        if (val && *val)
+            return std::string(val);
+        return def;
+    };
+
+    const auto parseSeverity = [](const std::string& level) {
+        if (level.empty())
+            return diag::Severity::DEBUG;
+
+        char c = static_cast<char>(std::toupper(static_cast<unsigned char>(level.front())));
+        switch (c)
+        {
+        case 'D':
+            return diag::Severity::DEBUG;
+        case 'I':
+            return diag::Severity::INFO;
+        case 'W':
+            return diag::Severity::WARN;
+        case 'E':
+            return diag::Severity::ERROR;
+        case 'F':
+            return diag::Severity::FATAL;
+        default:
+            return diag::Severity::DEBUG;
+        }
+    };
 
     trdp_sim::EngineContext ctx;
 
@@ -162,9 +193,28 @@ int main(int argc, char* argv[])
     if (pcapTxOverride)
         pcapCfg.captureTx = *pcapTxOverride;
 
-    diag::DiagnosticManager diagMgr(ctx, pdEngine, mdEngine, adapter, {}, pcapCfg);
+    diag::LogConfig logCfg{};
+    logCfg.minimumSeverity = parseSeverity(getEnvOrDefault("TRDP_LOG_LEVEL", "DEBUG"));
+
+    diag::DiagnosticManager diagMgr(ctx, pdEngine, mdEngine, adapter, logCfg, pcapCfg);
     ctx.diagManager = &diagMgr;
     diagMgr.start();
+
+    auto effectiveLevel = logCfg.minimumSeverity;
+    if (ctx.deviceConfig.debug)
+        effectiveLevel = parseSeverity(std::string(1, ctx.deviceConfig.debug->level));
+
+    diagMgr.log(diag::Severity::INFO, "Startup",
+                std::string("Initialized with config ") + ctx.configPath +
+                    ", log level " + (effectiveLevel == diag::Severity::DEBUG
+                                          ? "DEBUG"
+                                          : effectiveLevel == diag::Severity::INFO
+                                                ? "INFO"
+                                                : effectiveLevel == diag::Severity::WARN
+                                                      ? "WARN"
+                                                      : effectiveLevel == diag::Severity::ERROR
+                                                            ? "ERROR"
+                                                            : "FATAL"));
 
     trdp_sim::BackendEngine backend(ctx, pdEngine, mdEngine, diagMgr);
     backend.applyPreloadedConfiguration(ctx.deviceConfig, false);
@@ -303,18 +353,27 @@ int main(int argc, char* argv[])
         }
     };
 
-    auto getEnvOrDefault = [](const std::string& key, const std::string& def) {
-        const char* val = std::getenv(key.c_str());
-        if (val && *val)
-            return std::string(val);
-        return def;
-    };
-
     const std::string bindHost = getEnvOrDefault("TRDP_HTTP_HOST", "127.0.0.1");
     const uint16_t    bindPort = static_cast<uint16_t>(std::stoi(getEnvOrDefault("TRDP_HTTP_PORT", "8848")));
 
     app().addListener(bindHost, bindPort);
     app().setThreadNum(std::max(2u, std::thread::hardware_concurrency()));
+    app().setLogLevel(trantor::Logger::kTrace);
+    diagMgr.log(diag::Severity::INFO, "HTTP",
+                std::string("Listening on ") + bindHost + ":" + std::to_string(bindPort));
+
+    // Friendly root handler
+    app().registerHandler(
+        "/",
+        [&jsonResponse, &checkThrottle](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        {
+            if (!checkThrottle(req, cb))
+                return;
+            cb(jsonResponse({{"message", "TRDP simulator is running"},
+                             {"docs", "See /api/diag/metrics or /api/diag/events for runtime details."}},
+                            k200OK));
+        },
+        {Get, Head});
 
     // Auth login
     app().registerHandler(
