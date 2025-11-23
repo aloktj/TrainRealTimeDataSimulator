@@ -20,26 +20,6 @@ namespace diag
 
         constexpr std::size_t kPcapGlobalHeaderSize = sizeof(uint32_t) * 6;
 
-        Severity severityFromChar(char c)
-        {
-            c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-            switch (c)
-            {
-            case 'D':
-                return Severity::DEBUG;
-            case 'I':
-                return Severity::INFO;
-            case 'W':
-                return Severity::WARN;
-            case 'E':
-                return Severity::ERROR;
-            case 'F':
-                return Severity::FATAL;
-            default:
-                return Severity::INFO;
-            }
-        }
-
     } // namespace
 
     DiagnosticManager::DiagnosticManager(trdp_sim::EngineContext& ctx, engine::pd::PdEngine& pd,
@@ -47,18 +27,6 @@ namespace diag
                                          const LogConfig& cfg, const PcapConfig& pcapCfg)
         : m_ctx(ctx), m_pd(pd), m_md(md), m_adapter(adapter), m_logCfg(cfg), m_pcapCfg(pcapCfg)
     {
-        if (ctx.deviceConfig.debug)
-        {
-            auto dbg                 = *ctx.deviceConfig.debug;
-            m_logCfg.minimumSeverity = severityFromChar(dbg.level);
-            if (!dbg.fileName.empty())
-            {
-                m_logCfg.filePath         = dbg.fileName;
-                m_logCfg.logToStdout      = false;
-                m_logCfg.maxFileSizeBytes = dbg.fileSize;
-            }
-        }
-
         if (m_logCfg.filePath)
             m_logPath = *m_logCfg.filePath;
 
