@@ -93,6 +93,20 @@ namespace diag
         return out;
     }
 
+    std::vector<Event> DiagnosticManager::fetchSince(const std::chrono::system_clock::time_point& since,
+                                                     std::size_t maxEvents)
+    {
+        std::lock_guard<std::mutex> lock(m_mtx);
+        std::vector<Event>          out;
+        for (auto it = m_queue.rbegin(); it != m_queue.rend() && out.size() < maxEvents; ++it)
+        {
+            if (it->timestamp <= since)
+                break;
+            out.push_back(*it);
+        }
+        return out;
+    }
+
     MetricsSnapshot DiagnosticManager::getMetrics() const
     {
         std::lock_guard<std::mutex> lk(m_metricsMtx);

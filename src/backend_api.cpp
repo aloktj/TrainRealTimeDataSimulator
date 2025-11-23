@@ -473,6 +473,9 @@ namespace api
     {
         m_backend.reloadConfiguration(xmlPath);
         m_ctx.configPath = xmlPath;
+        std::lock_guard<std::mutex> lk(m_configCacheMtx);
+        m_cachedConfigDetail.reset();
+        m_cachedConfigSummary.reset();
     }
 
     bool BackendApi::startTransport()
@@ -538,6 +541,12 @@ namespace api
 
     nlohmann::json BackendApi::getConfigSummary() const
     {
+        {
+            std::lock_guard<std::mutex> lk(m_configCacheMtx);
+            if (m_cachedConfigSummary)
+                return *m_cachedConfigSummary;
+        }
+
         nlohmann::json j;
         j["hostName"]   = m_ctx.deviceConfig.hostName;
         j["leaderName"] = m_ctx.deviceConfig.leaderName;
@@ -561,11 +570,22 @@ namespace api
         j["runtime"]["transportActive"]   = m_backend.transportActive();
         j["runtime"]["activePdTelegrams"] = m_backend.transportActive() ? m_ctx.pdTelegrams.size() : 0;
         j["runtime"]["activeMdSessions"]  = m_backend.transportActive() ? m_ctx.mdSessions.size() : 0;
+
+        {
+            std::lock_guard<std::mutex> lk(m_configCacheMtx);
+            m_cachedConfigSummary = j;
+        }
         return j;
     }
 
     nlohmann::json BackendApi::getConfigDetail() const
     {
+        {
+            std::lock_guard<std::mutex> lk(m_configCacheMtx);
+            if (m_cachedConfigDetail)
+                return *m_cachedConfigDetail;
+        }
+
         nlohmann::json j;
         const auto&    cfg = m_ctx.deviceConfig;
         j["device"]["hostName"]   = cfg.hostName;
@@ -694,6 +714,10 @@ namespace api
             j["mappedDevices"].push_back(devJson);
         }
 
+        {
+            std::lock_guard<std::mutex> lk(m_configCacheMtx);
+            m_cachedConfigDetail = j;
+        }
         return j;
     }
 
@@ -736,10 +760,11 @@ namespace api
         return m_trdp.leaveMulticast(ifaceName, group);
     }
 
-    nlohmann::json BackendApi::getRecentEvents(std::size_t maxEvents) const
+    nlohmann::json BackendApi::getRecentEvents(std::size_t maxEvents,
+                                               std::optional<std::chrono::system_clock::time_point> since) const
     {
         nlohmann::json j      = nlohmann::json::array();
-        auto           events = m_diag.fetchRecent(maxEvents);
+        auto           events = since ? m_diag.fetchSince(*since, maxEvents) : m_diag.fetchRecent(maxEvents);
         for (const auto& ev : events)
         {
             nlohmann::json item;
@@ -771,9 +796,10 @@ namespace api
         return j;
     }
 
-    std::string BackendApi::exportRecentEventsText(std::size_t maxEvents) const
+    std::string BackendApi::exportRecentEventsText(std::size_t maxEvents,
+                                                   std::optional<std::chrono::system_clock::time_point> since) const
     {
-        auto events = m_diag.fetchRecent(maxEvents);
+        auto events = since ? m_diag.fetchSince(*since, maxEvents) : m_diag.fetchRecent(maxEvents);
         std::ostringstream oss;
         for (auto it = events.rbegin(); it != events.rend(); ++it)
         {
@@ -783,7 +809,8 @@ namespace api
     }
 
     bool BackendApi::exportRecentEventsToFile(std::size_t maxEvents, bool asJson,
-                                              const std::filesystem::path& destination) const
+                                              const std::filesystem::path& destination,
+                                              std::optional<std::chrono::system_clock::time_point> since) const
     {
         try
         {
@@ -794,9 +821,9 @@ namespace api
                 return false;
 
             if (asJson)
-                out << getRecentEvents(maxEvents).dump(2);
+                out << getRecentEvents(maxEvents, since).dump(2);
             else
-                out << exportRecentEventsText(maxEvents);
+                out << exportRecentEventsText(maxEvents, since);
             return true;
         }
         catch (...)

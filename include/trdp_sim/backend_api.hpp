@@ -1,8 +1,10 @@
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -13,8 +15,7 @@
 #include "md_engine.hpp"
 #include "pd_engine.hpp"
 
-// forward-declare nlohmann::json
-#include <nlohmann/json_fwd.hpp>
+#include <nlohmann/json.hpp>
 
 namespace api
 {
@@ -55,10 +56,13 @@ namespace api
         bool           leaveMulticastGroup(const std::string& ifaceName, const std::string& group);
 
         // Diagnostics:
-        nlohmann::json getRecentEvents(std::size_t maxEvents) const;
-        std::string    exportRecentEventsText(std::size_t maxEvents) const;
+        nlohmann::json getRecentEvents(std::size_t maxEvents,
+                                      std::optional<std::chrono::system_clock::time_point> since = std::nullopt) const;
+        std::string    exportRecentEventsText(std::size_t maxEvents,
+                                              std::optional<std::chrono::system_clock::time_point> since = std::nullopt) const;
         bool           exportRecentEventsToFile(std::size_t maxEvents, bool asJson,
-                                               const std::filesystem::path& destination) const;
+                                               const std::filesystem::path& destination,
+                                               std::optional<std::chrono::system_clock::time_point> since = std::nullopt) const;
         void           triggerDiagnosticEvent(const std::string& severity, const std::string& component,
                                               const std::string&                message,
                                               const std::optional<std::string>& extraJson = std::nullopt);
@@ -94,6 +98,10 @@ namespace api
         diag::DiagnosticManager& m_diag;
         trdp_sim::BackendEngine& m_backend;
         trdp::TrdpAdapter&       m_trdp;
+
+        mutable std::mutex                  m_configCacheMtx;
+        mutable std::optional<nlohmann::json> m_cachedConfigSummary;
+        mutable std::optional<nlohmann::json> m_cachedConfigDetail;
     };
 
 } // namespace api

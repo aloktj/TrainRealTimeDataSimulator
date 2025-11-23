@@ -418,6 +418,10 @@ int main(int argc, char* argv[])
                     std::string("Serving UI from ") + frontendRoot->string());
     }
 
+    app().enableGzip(true);
+    app().enableReusePort(true);
+    app().setIdleConnectionTimeout(60);
+
     app().addListener(bindHost, bindPort);
     app().setThreadNum(std::max(2u, std::thread::hardware_concurrency()));
     app().setLogLevel(trantor::Logger::kTrace);
@@ -1138,26 +1142,58 @@ int main(int argc, char* argv[])
             if (!requireRole(req, cb, auth::Role::Viewer))
                 return;
             auto        maxStr    = req->getParameter("max");
+            auto        sinceStr  = req->getParameter("sinceMs");
             std::size_t maxEvents = maxStr.empty() ? 50u : static_cast<std::size_t>(std::stoul(maxStr));
-            cb(jsonResponse(api.getRecentEvents(maxEvents)));
+            std::optional<std::chrono::system_clock::time_point> since;
+            if (!sinceStr.empty())
+            {
+                try
+                {
+                    auto sinceMs = std::stoll(sinceStr);
+                    since        = std::chrono::time_point<std::chrono::system_clock, std::chrono::milliseconds>(
+                        std::chrono::milliseconds(sinceMs));
+                }
+                catch (const std::exception&)
+                {
+                    cb(jsonResponse({{"error", "invalid sinceMs"}}, k400BadRequest));
+                    return;
+                }
+            }
+            cb(jsonResponse(api.getRecentEvents(maxEvents, since)));
         },
         {Get});
 
     app().registerHandler(
         "/api/diag/log/export",
-        [&api, &requireRole](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
+        [&api, &requireRole, jsonResponse](const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb)
         {
             if (!requireRole(req, cb, auth::Role::Viewer))
                 return;
             auto        maxStr    = req->getParameter("max");
+            auto        sinceStr  = req->getParameter("sinceMs");
             std::size_t maxEvents = maxStr.empty() ? 200u : static_cast<std::size_t>(std::stoul(maxStr));
+            std::optional<std::chrono::system_clock::time_point> since;
+            if (!sinceStr.empty())
+            {
+                try
+                {
+                    auto sinceMs = std::stoll(sinceStr);
+                    since        = std::chrono::time_point<std::chrono::system_clock, std::chrono::milliseconds>(
+                        std::chrono::milliseconds(sinceMs));
+                }
+                catch (const std::exception&)
+                {
+                    cb(jsonResponse({{"error", "invalid sinceMs"}}, k400BadRequest));
+                    return;
+                }
+            }
             auto        format    = req->getParameter("format");
             if (format == "json")
             {
                 auto resp = HttpResponse::newHttpResponse();
                 resp->setStatusCode(k200OK);
                 resp->setContentTypeCode(CT_APPLICATION_JSON);
-                resp->setBody(api.getRecentEvents(maxEvents).dump());
+                resp->setBody(api.getRecentEvents(maxEvents, since).dump());
                 cb(resp);
                 return;
             }
@@ -1165,7 +1201,7 @@ int main(int argc, char* argv[])
             auto resp = HttpResponse::newHttpResponse();
             resp->setStatusCode(k200OK);
             resp->setContentTypeCode(CT_TEXT_PLAIN);
-            resp->setBody(api.exportRecentEventsText(maxEvents));
+            resp->setBody(api.exportRecentEventsText(maxEvents, since));
             cb(resp);
         },
         {Get});
