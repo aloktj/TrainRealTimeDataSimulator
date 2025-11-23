@@ -23,7 +23,8 @@ static TRDP_IP_ADDR_T parse_ip(const char *ip)
         return 0;
     }
 
-    return addr.s_addr;
+    /* TRDP expects host-order integers; convert from network order here. */
+    return (TRDP_IP_ADDR_T)ntohl(addr.s_addr);
 }
 
 static void debug_out(void *ref_con, VOS_LOG_T category, const CHAR8 *pTime, const CHAR8 *pFile,
