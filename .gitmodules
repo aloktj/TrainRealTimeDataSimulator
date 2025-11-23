@@ -1,0 +1,3 @@
+[submodule "external/TCNopen"]
+	path = external/TCNopen
+	url = https://github.com/aloktj/TCNopen.git
