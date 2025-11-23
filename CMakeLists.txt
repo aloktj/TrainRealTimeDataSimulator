@@ -41,17 +41,7 @@ if(NOT tinyxml2_FOUND)
             add_library(tinyxml2::tinyxml2 ALIAS tinyxml2)
         endif()
     else()
-        message(STATUS "tinyxml2 not found, fetching from upstream")
-        FetchContent_Declare(
-            tinyxml2
-            URL https://github.com/leethomason/tinyxml2/archive/refs/tags/10.0.0.zip
-            DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-        )
-        set(tinyxml2_BUILD_TESTING OFF CACHE BOOL "" FORCE)
-        FetchContent_MakeAvailable(tinyxml2)
-        if(NOT TARGET tinyxml2::tinyxml2)
-            add_library(tinyxml2::tinyxml2 ALIAS tinyxml2)
-        endif()
+        message(FATAL_ERROR "tinyxml2 not found. Install libtinyxml2-dev or initialize the external/tinyxml2 submodule.")
     endif()
 endif()
 
