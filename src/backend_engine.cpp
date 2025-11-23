@@ -1,6 +1,7 @@
 #include "backend_engine.hpp"
 
 #include "diagnostic_manager.hpp"
+#include "trdp_adapter.hpp"
 
 #include <mutex>
 
